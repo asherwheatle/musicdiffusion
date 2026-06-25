@@ -1,0 +1,52 @@
+[project]
+name = "musicdiffusion"
+version = "0.1.0"
+description = "Audio reconstruction pipeline: DEAM -> Mel Spectrogram -> VAE-GAN -> BigVGAN"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    # PyTorch stack — versions must match each other exactly
+    # Using 2.3.1 + CUDA 12.4 wheels (cu124), stable and available on HiPerGator
+    "torch==2.3.1",
+    "torchaudio==2.3.1",
+
+    # numpy <2 required: numba (librosa dep) does not support numpy 2.x on CUDA builds
+    "numpy>=1.24,<2.0",
+
+    # Audio I/O
+    "librosa==0.10.2.post1",   # last 0.10.x; works with numpy<2 + numba 0.59
+    "soundfile>=0.12,<0.13",
+
+    # Visualization (non-interactive backend used in pipeline)
+    "matplotlib>=3.7,<3.10",
+
+    # Progress bars
+    "tqdm>=4.65",
+
+    # HuggingFace — needed internally by bigvgan.py from_pretrained()
+    "huggingface_hub>=0.23,<0.25",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# ---------------------------------------------------------------------------
+# uv configuration
+# ---------------------------------------------------------------------------
+[tool.uv]
+# Tell uv where to find CUDA 12.4 PyTorch wheels.
+# "explicit = true" means this index is ONLY searched for packages that
+# explicitly declare they come from it (see [tool.uv.sources] below).
+# This prevents uv from accidentally pulling unrelated packages from the
+# PyTorch index.
+index-strategy = "unsafe-best-match"
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+# Force torch and torchaudio to come from the CUDA 12.4 wheel index
+torch = { index = "pytorch-cu124" }
+torchaudio = { index = "pytorch-cu124" }
