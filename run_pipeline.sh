@@ -6,15 +6,20 @@
 # Monitor with: squeue -u $USER
 # =============================================================================
 
-#SBATCH --job-name=musicdiffusion
-#SBATCH --output=logs/slurm_%j.out
-#SBATCH --error=logs/slurm_%j.err
-#SBATCH --partition=gpu
-#SBATCH --gres=gpu:a100:1          # request 1 A100 GPU (CUDA 12.4 capable)
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=32gb
-#SBATCH --time=04:00:00            # HH:MM:SS — adjust to your epoch count
-#SBATCH --account=YOUR_GROUP       # <-- replace with your HiPerGator group/PI
+#SBATCH --job-name=user-model-pilot
+#SBATCH --output=logs/pilotb200%j.out
+#SBATCH --error=logs/pilotb200%j.err
+#SBATCH --partition=hpg-b200
+#SBATCH --account=ufdatastudios
+#SBATCH --qos=ufdatastudios
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=14
+#SBATCH --gpus=1
+#SBATCH --mem=64G
+#SBATCH --time=08:00:00
+#SBATCH --mail-user=asherwheatle@ufl.edu
+#SBATCH --mail-type=ALL
 
 # ---------------------------------------------------------------------------
 # 1. Load system modules
