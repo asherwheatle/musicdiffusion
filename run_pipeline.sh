@@ -59,28 +59,40 @@ mkdir -p logs output
 
 # ---------------------------------------------------------------------------
 # 6. Clone BigVGAN from HuggingFace if not already present
-#    (only downloads once; subsequent runs skip this)
+#    flock ensures only one concurrent job performs the clone — others wait.
 # ---------------------------------------------------------------------------
-if [ ! -d "bigvgan_v2_44khz_128band_512x" ]; then
-    echo "[SETUP] Cloning BigVGAN model from HuggingFace..."
-    module load git-lfs
-    git lfs install
-    git clone https://huggingface.co/nvidia/bigvgan_v2_44khz_128band_512x
-fi
+(
+  flock -x 200
+  if [ ! -d "bigvgan_v2_44khz_128band_512x" ]; then
+      echo "[SETUP] Cloning BigVGAN model from HuggingFace..."
+      module load git-lfs
+      git lfs install
+      git clone https://huggingface.co/nvidia/bigvgan_v2_44khz_128band_512x
+  else
+      echo "[SETUP] BigVGAN already present, skipping clone."
+  fi
+) 200>/tmp/bigvgan_clone.lock
 
 # ---------------------------------------------------------------------------
 # 7. Run the pipeline
+#    Each job gets its own output directory keyed by SLURM job ID,
+#    so concurrent runs never clobber each other's results.
 # ---------------------------------------------------------------------------
+OUTPUT_DIR="output/job_${SLURM_JOB_ID}"
+mkdir -p "$OUTPUT_DIR"
+
 echo "[RUN] Starting pipeline on $(date)"
+echo "[RUN] Job ID: $SLURM_JOB_ID  ->  output dir: $OUTPUT_DIR"
 echo "[RUN] GPU info:"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
 python pipeline.py \
     --audio_dir data/DEAM_audio/MEMD_audio \
-    --output_dir output \
+    --output_dir "$OUTPUT_DIR" \
     --song_index 0 \
     --epochs_vae 300 \
     --epochs_gan 150 \
     --latent_dim 128
 
 echo "[RUN] Done on $(date)"
+echo "[RUN] Results saved to: $OUTPUT_DIR"
