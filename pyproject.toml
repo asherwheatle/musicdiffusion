@@ -42,11 +42,11 @@ build-backend = "hatchling.build"
 index-strategy = "unsafe-best-match"
 
 [[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
-# Force torch and torchaudio to come from the CUDA 12.4 wheel index
-torch = { index = "pytorch-cu124" }
-torchaudio = { index = "pytorch-cu124" }
+# Force torch and torchaudio to come from the CUDA 12.8 wheel index
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }

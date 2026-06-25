@@ -25,24 +25,27 @@
 # 1. Load system modules
 # ---------------------------------------------------------------------------
 module purge
-module load cuda/12.4.1            # matches our cu124 PyTorch wheels
+module load cuda/12.8.1            # B200 GPUs require CUDA >= 12.8
 
 # ---------------------------------------------------------------------------
 # 2. Install uv (user-local, no root needed) if not already present
 # ---------------------------------------------------------------------------
+# uv installs to $HOME/.local/bin on Linux
+export PATH="$HOME/.local/bin:$PATH"
 if ! command -v uv &> /dev/null; then
     echo "[SETUP] Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.cargo/bin:$PATH"
+    # re-source in case installer updated PATH
+    export PATH="$HOME/.local/bin:$PATH"
 fi
 
 # ---------------------------------------------------------------------------
 # 3. Create venv and sync all dependencies from pyproject.toml
-#    uv will pull torch/torchaudio from the CUDA 12.4 index automatically.
-#    Place the venv on $SCRATCH to avoid inode quota issues on $HOME.
+#    uv will pull torch/torchaudio from the CUDA 12.8 index automatically.
+#    Venv lives in $HOME/.venvs — always writable, no root needed.
 # ---------------------------------------------------------------------------
-export UV_PROJECT_ENVIRONMENT="$SCRATCH/.venvs/musicdiffusion"
-mkdir -p "$SCRATCH/.venvs"
+export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/musicdiffusion"
+mkdir -p "$HOME/.venvs"
 
 echo "[SETUP] Syncing dependencies with uv..."
 uv sync
