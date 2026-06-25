@@ -9,13 +9,13 @@
 #SBATCH --job-name=user-model-pilot
 #SBATCH --output=logs/pilotb200%j.out
 #SBATCH --error=logs/pilotb200%j.err
-#SBATCH --partition=hpg-b200
+#SBATCH --partition=hpg-turin
 #SBATCH --account=ufdatastudios
 #SBATCH --qos=ufdatastudios
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=14
-#SBATCH --gpus=1
+#SBATCH --cpus-per-task=6
+#SBATCH --gpus=2
 #SBATCH --mem=64G
 #SBATCH --time=08:00:00
 #SBATCH --mail-user=asherwheatle@ufl.edu

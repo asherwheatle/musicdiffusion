@@ -4,16 +4,16 @@ version = "0.1.0"
 description = "Audio reconstruction pipeline: DEAM -> Mel Spectrogram -> VAE-GAN -> BigVGAN"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    # PyTorch stack — versions must match each other exactly
-    # Using 2.3.1 + CUDA 12.4 wheels (cu124), stable and available on HiPerGator
-    "torch==2.3.1",
-    "torchaudio==2.3.1",
+    # PyTorch stack — torch and torchaudio must match each other exactly.
+    # 2.7.0 is the first version with cu128 (CUDA 12.8) wheels.
+    "torch==2.7.0",
+    "torchaudio==2.7.0",
 
-    # numpy <2 required: numba (librosa dep) does not support numpy 2.x on CUDA builds
+    # numpy<2 kept for numba compatibility (librosa dep)
     "numpy>=1.24,<2.0",
 
-    # Audio I/O
-    "librosa==0.10.2.post1",   # last 0.10.x; works with numpy<2 + numba 0.59
+    # Audio I/O — 0.11.x adds numpy 2.x compat, works fine with <2 also
+    "librosa>=0.11,<0.12",
     "soundfile>=0.12,<0.13",
 
     # Visualization (non-interactive backend used in pipeline)
