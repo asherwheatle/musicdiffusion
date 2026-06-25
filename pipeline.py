@@ -59,17 +59,33 @@ class Config:
 
 
 # ============================================================================
-# BigVGAN Wrapper
+# BigVGAN Wrapper (HuggingFace local clone)
 # ============================================================================
 
-def load_bigvgan(device: str = "cuda"):
-    """Load pretrained BigVGAN v2 44kHz vocoder from HuggingFace."""
-    import bigvgan
-    from bigvgan import bigvgan as bigvgan_module
+# Path to the cloned HuggingFace BigVGAN repo (contains bigvgan.py, meldataset.py, weights)
+BIGVGAN_LOCAL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "bigvgan_v2_44khz_128band_512x")
 
-    print("[BIGVGAN] Loading nvidia/bigvgan_v2_44khz_128band_512x ...")
+# Add the cloned repo to sys.path so `import bigvgan` and `from meldataset import ...` resolve
+if BIGVGAN_LOCAL_DIR not in sys.path:
+    sys.path.insert(0, BIGVGAN_LOCAL_DIR)
+
+
+def load_bigvgan(device: str = "cuda"):
+    """Load pretrained BigVGAN v2 44kHz vocoder from the local HuggingFace clone."""
+    import bigvgan
+
+    if not os.path.isdir(BIGVGAN_LOCAL_DIR):
+        raise FileNotFoundError(
+            f"BigVGAN repo not found at {BIGVGAN_LOCAL_DIR}.\n"
+            f"Clone it first:\n"
+            f"  git lfs install\n"
+            f"  git clone https://huggingface.co/nvidia/bigvgan_v2_44khz_128band_512x"
+        )
+
+    print(f"[BIGVGAN] Loading from local clone: {BIGVGAN_LOCAL_DIR} ...")
     model = bigvgan.BigVGAN.from_pretrained(
-        "nvidia/bigvgan_v2_44khz_128band_512x",
+        BIGVGAN_LOCAL_DIR,
         use_cuda_kernel=False,
     )
     model.remove_weight_norm()

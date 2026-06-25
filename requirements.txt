@@ -5,4 +5,4 @@ soundfile>=0.12
 numpy
 matplotlib
 tqdm
-bigvgan
+huggingface_hub
