@@ -14,6 +14,7 @@ dependencies = [
 
     # Audio I/O — 0.11.x adds numpy 2.x compat, works fine with <2 also
     "librosa>=0.11,<0.12",
+    "scipy>=1.10",
     "soundfile>=0.12,<0.13",
 
     # Visualization (non-interactive backend used in pipeline)
