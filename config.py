@@ -36,14 +36,16 @@ class DiffusionConfig:
     prediction_type = "v"
 
     # Training
+    n_train_songs = 32
+    batch_size = 8
     diff_lr = 1e-4
-    diff_epochs = 1000
-    cfg_scale = 7.0
+    diff_epochs = 2000
+    cfg_scale = 1.5
     cfg_dropout = 0.1
 
     # Inference
     num_inference_steps = 50
-    edit_strength = 0.7
+    edit_strength = 0.35
 
     log_interval = 50
     output_dir = "output"

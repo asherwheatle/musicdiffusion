@@ -49,10 +49,11 @@ from pipeline import (
     load_bigvgan,
     bigvgan_mel_spectrogram,
     load_deam_song,
-    MelNormalizer,
+    FixedMelNormalizer,
     pad_spectrogram,
     unpad_spectrogram,
 )
+from dataset import build_dataset
 
 
 def parse_args():
@@ -67,10 +68,12 @@ def parse_args():
                         help="Input WAV for edit mode")
     parser.add_argument("--text", type=str, default="dark and mysterious",
                         help="Mood description for editing")
-    parser.add_argument("--edit_strength", type=float, default=0.7,
+    parser.add_argument("--edit_strength", type=float, default=0.35,
                         help="0=no change, 1=full regen from noise")
     parser.add_argument("--output_dir", type=str, default="output")
     parser.add_argument("--song_index", type=int, default=0)
+    parser.add_argument("--n_songs", type=int, default=None,
+                        help="Number of songs for training (default: 32)")
     parser.add_argument("--ae_epochs", type=int, default=None)
     parser.add_argument("--diff_epochs", type=int, default=None)
     return parser.parse_args()
@@ -86,6 +89,8 @@ def main():
         cfg.ae_epochs = args.ae_epochs
     if args.diff_epochs is not None:
         cfg.diff_epochs = args.diff_epochs
+    if args.n_songs is not None:
+        cfg.n_train_songs = args.n_songs
 
     os.makedirs(cfg.output_dir, exist_ok=True)
 
@@ -124,19 +129,27 @@ def main():
 
     wav_np = waveform.squeeze(0).numpy()
 
-    # --- Mel spectrogram ---
+    # --- Mel spectrogram of the edit-target song ---
     print("\n[STEP 3] Computing mel spectrogram...")
     mel = bigvgan_mel_spectrogram(waveform, bigvgan_model)
-    normalizer = MelNormalizer()
+    normalizer = FixedMelNormalizer()
     mel_norm = normalizer.normalize(mel)
     print(f"  Mel shape: {mel.shape}")
+
+    # --- Multi-song training set (text conditioning is only learnable if
+    #     different mood texts are paired with different songs) ---
+    if args.mode in ("train_ae", "train_diff", "full"):
+        print(f"\n[STEP 4] Building training set ({cfg.n_train_songs} songs)...")
+        mel_batch, wavs_np, mood_texts, names = build_dataset(
+            args.audio_dir, cfg.n_train_songs, bigvgan_model, cfg.clip_seconds
+        )
 
     # =========================================================================
     # Phase 1: Train latent autoencoder
     # =========================================================================
     if args.mode in ("train_ae", "full"):
         print("\n[PHASE 1] Training latent autoencoder...")
-        ae, orig_hw = train_autoencoder(mel_norm, cfg)
+        ae, orig_hw = train_autoencoder(mel_batch, cfg)
 
         ae_path = os.path.join(cfg.output_dir, "autoencoder.pt")
         torch.save(ae.state_dict(), ae_path)
@@ -156,7 +169,8 @@ def main():
         with torch.inference_mode():
             wav_ae = bigvgan_model(recon_mel.to(cfg.device))
         ae_wav_path = os.path.join(cfg.output_dir, "ae_reconstruction.wav")
-        sf.write(ae_wav_path, wav_ae.squeeze().cpu().numpy(), cfg.sample_rate)
+        sf.write(ae_wav_path, wav_ae.squeeze().cpu().clamp(-1.0, 1.0).numpy(),
+                 cfg.sample_rate)
         print(f"  AE reconstruction saved: {ae_wav_path}")
 
         if args.mode == "train_ae":
@@ -173,24 +187,19 @@ def main():
                                           weights_only=True))
             ae.eval()
 
-        mood_texts = [
-            args.text,
-            "happy and uplifting",
-            "sad and melancholic",
-            "energetic and powerful",
-            "calm and peaceful",
-        ]
-
         print("\n[PHASE 2] Training diffusion model...")
-        dit, melody_enc, text_enc, diffusion = train_diffusion(
-            ae, mel_norm, wav_np, mood_texts, cfg
+        dit, melody_enc, text_enc, diffusion, latent_stats = train_diffusion(
+            ae, mel_batch, wavs_np, mood_texts, cfg
         )
+        latent_mean, latent_std = latent_stats
 
         diff_path = os.path.join(cfg.output_dir, "diffusion.pt")
         torch.save({
             "dit": dit.state_dict(),
             "melody_enc": melody_enc.state_dict(),
             "text_enc": text_enc.state_dict(),
+            "latent_mean": latent_mean,
+            "latent_std": latent_std,
         }, diff_path)
         print(f"  Saved diffusion model: {diff_path}")
 
@@ -226,6 +235,8 @@ def main():
         dit.load_state_dict(ckpt["dit"])
         melody_enc.load_state_dict(ckpt["melody_enc"])
         text_enc.load_state_dict(ckpt["text_enc"])
+        latent_mean = ckpt["latent_mean"].to(cfg.device)
+        latent_std = ckpt["latent_std"].to(cfg.device)
         dit.eval()
         melody_enc.eval()
         text_enc.eval()
@@ -240,6 +251,7 @@ def main():
         waveform, args.text,
         ae, dit, melody_enc, text_enc, diffusion,
         bigvgan_model, cfg,
+        latent_mean, latent_std,
     )
 
     edited_path = os.path.join(cfg.output_dir,

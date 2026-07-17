@@ -158,6 +158,25 @@ class MelNormalizer:
         return mel_norm * (self.mel_max - self.mel_min + 1e-8) + self.mel_min
 
 
+class FixedMelNormalizer:
+    """
+    Global mel normalization with fixed bounds, so every song maps to the
+    same [0, 1] scale (required for multi-song training and consistent
+    inference). BigVGAN log-mels bottom out at log(1e-5) ~= -11.51.
+    """
+
+    def __init__(self, mel_min: float = -12.0, mel_max: float = 2.5):
+        self.mel_min = mel_min
+        self.mel_max = mel_max
+
+    def normalize(self, mel: torch.Tensor) -> torch.Tensor:
+        mel = mel.clamp(self.mel_min, self.mel_max)
+        return (mel - self.mel_min) / (self.mel_max - self.mel_min)
+
+    def denormalize(self, mel_norm: torch.Tensor) -> torch.Tensor:
+        return mel_norm * (self.mel_max - self.mel_min) + self.mel_min
+
+
 # ============================================================================
 # VAE Model
 # ============================================================================
@@ -561,7 +580,8 @@ def main():
         recon_mel_device = recon_mel.to(cfg.device)
         wav_gen = bigvgan_model(recon_mel_device)  # (1, 1, T_time)
 
-    wav_gen_float = wav_gen.squeeze(0).cpu()  # (1, T_time)
+    # BigVGAN v2 has use_tanh_at_final=false, so clamp the unbounded output
+    wav_gen_float = wav_gen.squeeze(0).cpu().clamp(-1.0, 1.0)  # (1, T_time)
 
     recon_wav_path = os.path.join(args.output_dir, "reconstructed.wav")
     sf.write(recon_wav_path, wav_gen_float.squeeze(0).numpy(), sr)
@@ -572,7 +592,7 @@ def main():
     with torch.inference_mode():
         mel_device = mel.to(cfg.device)
         wav_baseline = bigvgan_model(mel_device)
-    wav_baseline_float = wav_baseline.squeeze(0).cpu()
+    wav_baseline_float = wav_baseline.squeeze(0).cpu().clamp(-1.0, 1.0)
 
     baseline_wav_path = os.path.join(args.output_dir, "baseline_bigvgan.wav")
     sf.write(baseline_wav_path, wav_baseline_float.squeeze(0).numpy(), sr)

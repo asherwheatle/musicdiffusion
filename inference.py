@@ -11,7 +11,7 @@ from melody import MelodyExtractor, MelodyEncoder
 from text_encoder import TextEncoder
 from dit import MoodDiT
 from diffusion import GaussianDiffusion
-from pipeline import bigvgan_mel_spectrogram, MelNormalizer, pad_spectrogram, unpad_spectrogram
+from pipeline import bigvgan_mel_spectrogram, FixedMelNormalizer, pad_spectrogram, unpad_spectrogram
 
 
 @torch.no_grad()
@@ -25,6 +25,8 @@ def edit_mood(
     diffusion: GaussianDiffusion,
     bigvgan_model,
     cfg: DiffusionConfig,
+    latent_mean: torch.Tensor,
+    latent_std: torch.Tensor,
 ) -> torch.Tensor:
     """
     Edit the mood of an audio waveform using text conditioning.
@@ -45,12 +47,14 @@ def edit_mood(
     wav_np = waveform.squeeze().numpy()
 
     mel = bigvgan_mel_spectrogram(waveform, bigvgan_model)
-    normalizer = MelNormalizer()
+    normalizer = FixedMelNormalizer()
     mel_norm = normalizer.normalize(mel)
     mel_padded, orig_hw = pad_spectrogram(mel_norm.unsqueeze(0))
     mel_padded = mel_padded.to(device)
 
     z0 = ae.encoder(mel_padded)
+    # Same latent standardization used during diffusion training
+    z0 = (z0 - latent_mean) / latent_std
     print(f"[EDIT] Latent z0: {z0.shape}")
 
     extractor = MelodyExtractor(
@@ -97,6 +101,8 @@ def edit_mood(
 
         z_t = diffusion.ddim_step(z_t, v_guided, t_cur, t_prev)
 
+    # Undo standardization before the decoder (it expects raw encoder-scale latents)
+    z_t = z_t * latent_std + latent_mean
     recon_mel_norm = ae.decoder(z_t)
     if recon_mel_norm.shape != mel_padded.shape:
         recon_mel_norm = F.interpolate(
@@ -108,4 +114,5 @@ def edit_mood(
 
     with torch.inference_mode():
         wav_out = bigvgan_model(recon_mel.to(device))
-    return wav_out.squeeze(0).cpu()
+    # BigVGAN v2 has use_tanh_at_final=false, so output is unbounded
+    return wav_out.squeeze(0).cpu().clamp(-1.0, 1.0)
