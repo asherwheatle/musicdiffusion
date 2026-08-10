@@ -6,11 +6,40 @@ Implementation of [Editing Music with Melody and Text: Using ControlNet for Diff
 
 Takes an audio clip and a text mood description (e.g. `"dark and mysterious"`) and outputs a version of the audio with the mood altered while preserving the original melody structure. The ControlNet branch locks in pitch/melody via CQT features; the DiT is steered by the text prompt via cross-attention and classifier-free guidance.
 
+## Data setup
+
+Training now uses DEAM's official valence/arousal annotations (instead of the
+old audio-feature heuristic) and defaults to the **entire** annotated dataset
+(~1800 songs). Expected layout:
+
+```
+data/
+  DEAM_audio/MEMD_audio/        2.mp3 ... 2058.mp3
+  DEAM_Annotations/             the annotations download (any nesting is fine —
+                                the loader searches recursively for
+                                valence.csv + arousal.csv, or the
+                                static_annotations_averaged*.csv files)
+```
+
+Songs are labeled by mean valence/arousal over the 15-30 s clip window
+(DEAM's dynamic annotations start at 15 s, so training clips do too), mapped
+to the five mood strings used for text conditioning. Songs without
+annotations are skipped; if no annotation files are found at all, it falls
+back to the old heuristic with a warning.
+
+The first run decodes all mp3s and extracts melodies (~30 min), then caches
+everything to `cache/*.npz`; later runs load in seconds. Use `--no_cache` to
+disable.
+
 ## Usage
 
 ```bash
 # Full pipeline: train autoencoder -> train diffusion -> edit
-python mood_diffusion.py --mode full --audio_dir data/DEAM_audio/MEMD_audio --text "dark and mysterious"
+python mood_diffusion.py --mode full --audio_dir data/DEAM_audio/MEMD_audio \
+    --annotations_dir data/DEAM_Annotations --text "dark and mysterious"
+
+# Quick smoke test on a 32-song subset
+python mood_diffusion.py --mode full --n_songs 32 --diff_epochs 2000
 
 # Train autoencoder only
 python mood_diffusion.py --mode train_ae --audio_dir data/DEAM_audio/MEMD_audio
@@ -34,6 +63,12 @@ pipeline.py         BigVGAN vocoder loading, DEAM data loading, mel spectrogram 
 
 config.py           DiffusionConfig — all hyperparameters in one place (epochs, lr,
                     model dims, diffusion schedule, CFG scale, etc.)
+
+annotations.py      DEAM valence/arousal CSV loading (dynamic + static formats)
+                    and the (valence, arousal) -> mood text mapping
+
+dataset.py          build_dataset — loads DEAM clips, labels them from the
+                    annotations, extracts melodies, caches to cache/*.npz
 
 autoencoder.py      LatentEncoder / LatentDecoder / LatentAutoencoder — convolutional
                     autoencoder that compresses mel spectrograms into a 2D spatial latent
@@ -85,8 +120,10 @@ All outputs go to `output/` by default:
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `ae_epochs` | 500 | More = better latent reconstruction |
-| `diff_epochs` | 1000 | More = stronger mood conditioning |
+| `ae_epochs` | 100 | Full passes over the dataset for the AE |
+| `diff_epochs` | 10000 | Diffusion training steps; more = stronger mood conditioning |
+| `n_train_songs` | None (all) | Subset size for quick experiments |
+| `clip_start_seconds` | 15 | Clip offset, aligned to the annotated region |
 | `edit_strength` | 0.7 | 0 = no change, 1 = full regeneration from noise |
 | `cfg_scale` | 7.0 | Higher = stronger text adherence, less fidelity |
 | `d_model` | 256 | DiT model width |

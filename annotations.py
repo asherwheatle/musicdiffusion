@@ -1,0 +1,159 @@
+"""DEAM valence/arousal annotation loading and mood-text mapping.
+
+DEAM provides two annotation formats, both supported here:
+
+  dynamic (per-second):  arousal.csv / valence.csv
+      one row per song: song_id, sample_15000ms, sample_15500ms, ...
+      values in roughly [-1, 1], 500 ms steps, starting at 15 s
+      (the first 15 s of each excerpt is unannotated)
+
+  static (song-level):   static_annotations_averaged_songs_*.csv
+      columns: song_id, valence_mean, arousal_mean, ... on a 1-9 scale
+
+The loader searches `annotations_dir` recursively, prefers the dynamic
+files (they let us average over the exact clip window we train on), and
+falls back to the static ones. Everything is rescaled to [-1, 1].
+"""
+
+import csv
+import glob
+import os
+
+import numpy as np
+
+
+# Same vocabulary the model was already trained with, so existing
+# inference prompts keep working.
+MOOD_QUADRANTS = {
+    (True, True): "happy and uplifting",       # high arousal, high valence
+    (True, False): "energetic and powerful",   # high arousal, low valence
+    (False, True): "calm and peaceful",        # low arousal, high valence
+    (False, False): "sad and melancholic",     # low arousal, low valence
+}
+
+# Valence below this (on the [-1, 1] scale) with low arousal reads as
+# "dark" rather than merely "sad".
+DARK_VALENCE_THRESHOLD = -0.25
+
+# Dynamic annotations start at 15 s into each excerpt.
+DYNAMIC_START_MS = 15000
+DYNAMIC_STEP_MS = 500
+
+
+def mood_from_va(valence: float, arousal: float) -> str:
+    """Map a (valence, arousal) pair on the [-1, 1] scale to a mood string."""
+    if arousal <= 0 and valence < DARK_VALENCE_THRESHOLD:
+        return "dark and mysterious"
+    return MOOD_QUADRANTS[(arousal > 0, valence > 0)]
+
+
+def _find_file(annotations_dir: str, filename: str):
+    matches = glob.glob(os.path.join(annotations_dir, "**", filename),
+                        recursive=True)
+    return matches[0] if matches else None
+
+
+def _load_dynamic_csv(path: str, window_start_s: float,
+                      window_end_s: float) -> dict:
+    """
+    Read one dynamic annotation CSV and return {song_id: mean value over
+    the [window_start_s, window_end_s) clip window}. Falls back to the
+    whole-song mean when the window has no annotated samples (e.g. clips
+    taken from the unannotated first 15 s).
+    """
+    values = {}
+    with open(path, newline="") as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        sample_ms = np.array([
+            int(col.split("_")[1].replace("ms", "")) for col in header[1:]
+        ])
+        in_window = ((sample_ms >= window_start_s * 1000) &
+                     (sample_ms < window_end_s * 1000))
+
+        for row in reader:
+            if not row or not row[0].strip():
+                continue
+            song_id = int(float(row[0]))
+            vals = np.array([
+                float(v) if v.strip() else np.nan for v in row[1:]
+            ])
+            # Rows can be shorter (short songs) or longer than the header
+            if len(vals) < len(sample_ms):
+                vals = np.pad(vals, (0, len(sample_ms) - len(vals)),
+                              constant_values=np.nan)
+            else:
+                vals = vals[:len(sample_ms)]
+            windowed = vals[in_window]
+            if np.isfinite(windowed).any():
+                values[song_id] = float(np.nanmean(windowed))
+            elif np.isfinite(vals).any():
+                values[song_id] = float(np.nanmean(vals))
+    return values
+
+
+def _load_static_csv(paths: list) -> dict:
+    """Read static song-level CSVs -> {song_id: (valence, arousal)} in [-1, 1]."""
+    va = {}
+    for path in paths:
+        with open(path, newline="") as f:
+            reader = csv.DictReader(f)
+            # DEAM headers sometimes carry stray spaces (" valence_mean")
+            field = {name.strip(): name for name in reader.fieldnames}
+            for row in reader:
+                song_id = int(float(row[field["song_id"]]))
+                v = float(row[field["valence_mean"]])
+                a = float(row[field["arousal_mean"]])
+                # 1-9 scale -> [-1, 1]
+                va[song_id] = ((v - 5.0) / 4.0, (a - 5.0) / 4.0)
+    return va
+
+
+def load_annotations(annotations_dir: str, clip_start_seconds: float = 15,
+                     clip_seconds: float = 15) -> dict:
+    """
+    Load DEAM annotations from anywhere under annotations_dir.
+
+    Returns:
+        {song_id: (valence, arousal)} with both values in [-1, 1],
+        averaged over the training clip window when dynamic annotations
+        are available.
+
+    Raises FileNotFoundError if no known annotation files are present.
+    """
+    window = (clip_start_seconds, clip_start_seconds + clip_seconds)
+
+    valence_path = _find_file(annotations_dir, "valence.csv")
+    arousal_path = _find_file(annotations_dir, "arousal.csv")
+    if valence_path and arousal_path:
+        print(f"[ANNOT] Dynamic annotations: {valence_path}")
+        valence = _load_dynamic_csv(valence_path, *window)
+        arousal = _load_dynamic_csv(arousal_path, *window)
+        common = valence.keys() & arousal.keys()
+        va = {sid: (valence[sid], arousal[sid]) for sid in common}
+        print(f"[ANNOT] {len(va)} songs with valence+arousal "
+              f"(window {window[0]:.0f}-{window[1]:.0f}s)")
+        return va
+
+    static_paths = glob.glob(os.path.join(
+        annotations_dir, "**", "static_annotations_averaged*.csv"),
+        recursive=True)
+    if static_paths:
+        print(f"[ANNOT] Static annotations: {static_paths}")
+        va = _load_static_csv(static_paths)
+        print(f"[ANNOT] {len(va)} songs with valence+arousal")
+        return va
+
+    raise FileNotFoundError(
+        f"No DEAM annotations found under {annotations_dir}. Expected "
+        f"valence.csv + arousal.csv (dynamic) or "
+        f"static_annotations_averaged*.csv (song-level).")
+
+
+def song_id_from_filename(filename: str):
+    """DEAM audio files are named '<song_id>.mp3'."""
+    stem = os.path.splitext(os.path.basename(filename))[0]
+    try:
+        return int(stem)
+    except ValueError:
+        return None

@@ -1,16 +1,25 @@
+import os
+
 import torch
 
 
 class DiffusionConfig:
     sample_rate = 44100
     clip_seconds = 15
+    # Training clips start 15 s in: DEAM's dynamic annotations only cover
+    # 15 s onward, so this aligns the audio with its mood label
+    clip_start_seconds = 15
     n_mels = 128
     device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Data
+    annotations_dir = os.path.join("data", "DEAM_Annotations")
+    cache_dir = "cache"
 
     # Autoencoder
     ae_channels = [1, 32, 64, 128, 32]
     ae_lr = 1e-3
-    ae_epochs = 500
+    ae_epochs = 100
 
     # CQT / Melody (paper section III-B)
     cqt_bins = 128
@@ -36,10 +45,10 @@ class DiffusionConfig:
     prediction_type = "v"
 
     # Training
-    n_train_songs = 32
-    batch_size = 8
+    n_train_songs = None      # None = entire annotated dataset (~1800 songs)
+    batch_size = 16
     diff_lr = 1e-4
-    diff_epochs = 2000
+    diff_epochs = 10000
     cfg_scale = 1.5
     cfg_dropout = 0.1
 

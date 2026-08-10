@@ -1,6 +1,9 @@
-"""Training loops for the latent autoencoder and diffusion model."""
+"""Training loops for the latent autoencoder and diffusion model.
 
-import numpy as np
+Data tensors (mels, latents, melodies) stay on CPU so the full ~1800-song
+DEAM set fits in memory; only the active minibatch is moved to the GPU.
+"""
+
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -8,11 +11,11 @@ from tqdm import tqdm
 
 from config import DiffusionConfig
 from autoencoder import LatentAutoencoder
-from melody import MelodyExtractor, MelodyEncoder
 from text_encoder import TextEncoder
 from dit import MoodDiT
+from melody import MelodyEncoder
 from diffusion import GaussianDiffusion
-from pipeline import pad_spectrogram, unpad_spectrogram
+from pipeline import pad_spectrogram
 
 
 def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
@@ -20,7 +23,7 @@ def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
     Train the latent autoencoder on a batch of normalized mel spectrograms.
 
     Args:
-        mel_batch: (N, 1, n_mels, T) normalized mels, one per song
+        mel_batch: (N, 1, n_mels, T) normalized mels, one per song (CPU)
 
     Preserves spatial structure (no flatten bottleneck) so the latent
     is suitable for 2D diffusion.
@@ -31,7 +34,6 @@ def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
     """
     device = cfg.device
     mel_padded, orig_hw = pad_spectrogram(mel_batch)
-    mel_padded = mel_padded.to(device)
     n_songs = mel_padded.shape[0]
 
     ae = LatentAutoencoder(cfg.ae_channels).to(device)
@@ -39,15 +41,15 @@ def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
 
     print(f"\n{'='*60}")
     print(f" Training Latent Autoencoder ({cfg.ae_epochs} epochs)")
-    print(f" Input: {mel_padded.shape} ({n_songs} songs)  Device: {device}")
+    print(f" Input: {tuple(mel_padded.shape)} ({n_songs} songs)  Device: {device}")
     print(f"{'='*60}")
 
     ae.train()
     for epoch in tqdm(range(1, cfg.ae_epochs + 1), desc="Autoencoder"):
-        perm = torch.randperm(n_songs, device=device)
+        perm = torch.randperm(n_songs)
         epoch_loss, n_batches = 0.0, 0
         for i in range(0, n_songs, cfg.batch_size):
-            batch = mel_padded[perm[i:i + cfg.batch_size]]
+            batch = mel_padded[perm[i:i + cfg.batch_size]].to(device)
             optimizer.zero_grad()
             recon, z = ae(batch)
             if recon.shape != batch.shape:
@@ -66,15 +68,25 @@ def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
     return ae, orig_hw
 
 
+@torch.no_grad()
+def _encode_latents(ae: LatentAutoencoder, mel_padded: torch.Tensor,
+                    device: str, chunk: int = 32) -> torch.Tensor:
+    """Encode all mels to latents in chunks; result stays on CPU."""
+    zs = []
+    for i in tqdm(range(0, mel_padded.shape[0], chunk), desc="Encoding latents"):
+        zs.append(ae.encoder(mel_padded[i:i + chunk].to(device)).cpu())
+    return torch.cat(zs, dim=0)
+
+
 def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
-                    waveforms_np: list[np.ndarray], mood_texts: list[str],
+                    melody_all: torch.Tensor, mood_texts: list[str],
                     cfg: DiffusionConfig):
     """
     Train the DiT + ControlNet diffusion model in the autoencoder's latent space.
 
     Args:
-        mel_batch: (N, 1, n_mels, T) normalized mels, one per song
-        waveforms_np: list of N waveforms (for melody extraction)
+        mel_batch: (N, 1, n_mels, T) normalized mels, one per song (CPU)
+        melody_all: (N, top_k, T_cqt) precomputed melody pitch indices (CPU)
         mood_texts: list of N mood strings, one per song
 
     Each step:
@@ -91,31 +103,18 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
     """
     device = cfg.device
     mel_padded, orig_hw = pad_spectrogram(mel_batch)
-    mel_padded = mel_padded.to(device)
     n_songs = mel_padded.shape[0]
 
     ae.eval()
-    with torch.no_grad():
-        z0_all = ae.encoder(mel_padded)
+    z0_all = _encode_latents(ae, mel_padded, device)
     # Standardize latents so the diffusion's unit-variance noise assumption
     # holds (the encoder's GroupNorm+SiLU output is skewed, std != 1)
     latent_mean = z0_all.mean()
     latent_std = z0_all.std()
     z0_all = (z0_all - latent_mean) / latent_std
-    print(f"[DIFF] Latents: {z0_all.shape} "
+    print(f"[DIFF] Latents: {tuple(z0_all.shape)} "
           f"(mean={latent_mean.item():.4f}, std={latent_std.item():.4f})")
-
-    extractor = MelodyExtractor(
-        sr=cfg.sample_rate, n_bins=cfg.cqt_bins,
-        bins_per_octave=cfg.cqt_bins_per_octave,
-        hop_length=cfg.cqt_hop, fmin=cfg.cqt_fmin,
-        top_k=cfg.melody_top_k, highpass_cutoff=cfg.highpass_cutoff,
-    )
-    melody_all = torch.stack([
-        torch.from_numpy(extractor.extract(w))
-        for w in tqdm(waveforms_np, desc="Extracting melodies")
-    ], dim=0).to(device)  # (N, top_k, T_cqt)
-    print(f"[DIFF] Melody shape: {melody_all.shape}")
+    print(f"[DIFF] Melody shape: {tuple(melody_all.shape)}")
 
     _, C_lat, H_lat, W_lat = z0_all.shape
     dit = MoodDiT(
@@ -136,12 +135,12 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
 
     tokens_all = torch.stack([
         TextEncoder.tokenize(t, cfg.text_max_len) for t in mood_texts
-    ], dim=0).to(device)  # (N, text_max_len)
+    ], dim=0)  # (N, text_max_len) on CPU
     null_tokens = TextEncoder.tokenize("", cfg.text_max_len).to(device)
 
     from collections import Counter
     print(f"\n{'='*60}")
-    print(f" Training Diffusion Model ({cfg.diff_epochs} epochs, "
+    print(f" Training Diffusion Model ({cfg.diff_epochs} steps, "
           f"{n_songs} songs, batch {cfg.batch_size})")
     print(f" DiT blocks: {cfg.n_dit_blocks} ({cfg.n_controlnet_blocks} w/ ControlNet)")
     print(f" d_model: {cfg.d_model}  heads: {cfg.n_heads}")
@@ -155,16 +154,16 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
     for epoch in tqdm(range(1, cfg.diff_epochs + 1), desc="Diffusion"):
         optimizer.zero_grad()
 
-        idx = torch.randint(0, n_songs, (cfg.batch_size,), device=device)
-        z0 = z0_all[idx]
+        idx = torch.randint(0, n_songs, (cfg.batch_size,))
+        z0 = z0_all[idx].to(device)
         t = torch.randint(0, cfg.num_train_timesteps,
                           (cfg.batch_size,), device=device)
         noise = torch.randn_like(z0)
         z_t = diffusion.q_sample(z0, t, noise)
 
-        mel_emb = melody_enc(melody_all[idx], W_lat)
+        mel_emb = melody_enc(melody_all[idx].to(device), W_lat)
 
-        tokens = tokens_all[idx].clone()
+        tokens = tokens_all[idx].to(device)
         drop = torch.rand(cfg.batch_size, device=device) < cfg.cfg_dropout
         tokens[drop] = null_tokens
         text_emb = text_enc(tokens)

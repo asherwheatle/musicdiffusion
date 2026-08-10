@@ -39,7 +39,7 @@ import librosa
 from config import DiffusionConfig
 from autoencoder import LatentAutoencoder
 from dit import MoodDiT
-from melody import MelodyEncoder
+from melody import MelodyEncoder, MelodyExtractor
 from text_encoder import TextEncoder
 from diffusion import GaussianDiffusion
 from train import train_autoencoder, train_diffusion
@@ -73,7 +73,13 @@ def parse_args():
     parser.add_argument("--output_dir", type=str, default="output")
     parser.add_argument("--song_index", type=int, default=0)
     parser.add_argument("--n_songs", type=int, default=None,
-                        help="Number of songs for training (default: 32)")
+                        help="Number of songs for training "
+                             "(default: all annotated songs; -1 also = all)")
+    parser.add_argument("--annotations_dir", type=str, default=None,
+                        help="Root of the DEAM annotations download "
+                             "(default: data/DEAM_Annotations)")
+    parser.add_argument("--no_cache", action="store_true",
+                        help="Disable the on-disk dataset cache")
     parser.add_argument("--ae_epochs", type=int, default=None)
     parser.add_argument("--diff_epochs", type=int, default=None)
     return parser.parse_args()
@@ -90,7 +96,11 @@ def main():
     if args.diff_epochs is not None:
         cfg.diff_epochs = args.diff_epochs
     if args.n_songs is not None:
-        cfg.n_train_songs = args.n_songs
+        cfg.n_train_songs = None if args.n_songs <= 0 else args.n_songs
+    if args.annotations_dir is not None:
+        cfg.annotations_dir = args.annotations_dir
+    if args.no_cache:
+        cfg.cache_dir = None
 
     os.makedirs(cfg.output_dir, exist_ok=True)
 
@@ -139,9 +149,19 @@ def main():
     # --- Multi-song training set (text conditioning is only learnable if
     #     different mood texts are paired with different songs) ---
     if args.mode in ("train_ae", "train_diff", "full"):
-        print(f"\n[STEP 4] Building training set ({cfg.n_train_songs} songs)...")
-        mel_batch, wavs_np, mood_texts, names = build_dataset(
-            args.audio_dir, cfg.n_train_songs, bigvgan_model, cfg.clip_seconds
+        n_desc = "all" if cfg.n_train_songs is None else cfg.n_train_songs
+        print(f"\n[STEP 4] Building training set ({n_desc} songs)...")
+        extractor = MelodyExtractor(
+            sr=cfg.sample_rate, n_bins=cfg.cqt_bins,
+            bins_per_octave=cfg.cqt_bins_per_octave,
+            hop_length=cfg.cqt_hop, fmin=cfg.cqt_fmin,
+            top_k=cfg.melody_top_k, highpass_cutoff=cfg.highpass_cutoff,
+        )
+        mel_batch, melodies, mood_texts, names = build_dataset(
+            args.audio_dir, cfg.n_train_songs, bigvgan_model,
+            cfg.clip_seconds, annotations_dir=cfg.annotations_dir,
+            clip_start_seconds=cfg.clip_start_seconds,
+            melody_extractor=extractor, cache_dir=cfg.cache_dir,
         )
 
     # =========================================================================
@@ -189,7 +209,7 @@ def main():
 
         print("\n[PHASE 2] Training diffusion model...")
         dit, melody_enc, text_enc, diffusion, latent_stats = train_diffusion(
-            ae, mel_batch, wavs_np, mood_texts, cfg
+            ae, mel_batch, melodies, mood_texts, cfg
         )
         latent_mean, latent_std = latent_stats
 
