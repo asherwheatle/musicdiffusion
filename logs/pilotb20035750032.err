@@ -1,0 +1,9 @@
+downloading uv 0.11.24 x86_64-unknown-linux-gnu
+mkdir: cannot create directory ‘/.venvs’: Permission denied
+Downloading cpython-3.12.13-linux-x86_64-gnu (download) (32.6MiB)
+ Downloaded cpython-3.12.13-linux-x86_64-gnu (download)
+Using CPython 3.12.13
+Creating virtual environment at: /.venvs/musicdiffusion
+error: failed to create directory `/.venvs/musicdiffusion`: Permission denied (os error 13)
+/var/spool/slurmd/job35750032/slurm_script: line 53: /.venvs/musicdiffusion/bin/activate: No such file or directory
+/var/spool/slurmd/job35750032/slurm_script: line 89: python: command not found

@@ -1,0 +1,10 @@
+Using CPython 3.12.13
+Creating virtual environment at: /home/asherwheatle/.venvs/musicdiffusion
+  × No solution found when resolving dependencies:
+  ╰─▶ Because there is no version of torch==2.3.1 and your project depends
+      on torch==2.3.1, we can conclude that your project's requirements are
+      unsatisfiable.
+Traceback (most recent call last):
+  File "/home/asherwheatle/diffusion/musicdiffusion/pipeline.py", line 26, in <module>
+    import numpy as np
+ModuleNotFoundError: No module named 'numpy'

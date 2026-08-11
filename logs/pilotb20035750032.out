@@ -1,0 +1,14 @@
+[SETUP] Installing uv...
+installing to /home/asherwheatle/.local/bin
+  uv
+  uvx
+everything's installed!
+[SETUP] Syncing dependencies with uv...
+[SETUP] BigVGAN already present, skipping clone.
+[RUN] Starting pipeline on Thu Jun 25 01:20:02 PM EDT 2026
+[RUN] Job ID: 35750032  ->  output dir: output/job_35750032
+[RUN] GPU info:
+NVIDIA L4, 23034 MiB
+NVIDIA L4, 23034 MiB
+[RUN] Done on Thu Jun 25 01:20:02 PM EDT 2026
+[RUN] Results saved to: output/job_35750032

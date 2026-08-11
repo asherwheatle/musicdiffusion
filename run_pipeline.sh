@@ -6,9 +6,9 @@
 # Monitor with: squeue -u $USER
 # =============================================================================
 
-#SBATCH --job-name=user-model-pilot
-#SBATCH --output=logs/pilotb200%j.out
-#SBATCH --error=logs/pilotb200%j.err
+#SBATCH --job-name=mood-diffusion-full
+#SBATCH --output=logs/mood_full_%j.out
+#SBATCH --error=logs/mood_full_%j.err
 #SBATCH --partition=hpg-turin
 #SBATCH --account=ufdatastudios
 #SBATCH --qos=ufdatastudios
@@ -89,13 +89,10 @@ echo "[RUN] Job ID: $SLURM_JOB_ID  ->  output dir: $OUTPUT_DIR"
 echo "[RUN] GPU info:"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
-python pipeline.py \
+python mood_diffusion.py \
+    --mode full \
     --audio_dir data/DEAM_audio/MEMD_audio \
-    --output_dir "$OUTPUT_DIR" \
-    --song_index 0 \
-    --epochs_vae 300 \
-    --epochs_gan 150 \
-    --latent_dim 128
+    --output_dir "$OUTPUT_DIR"
 
 echo "[RUN] Done on $(date)"
 echo "[RUN] Results saved to: $OUTPUT_DIR"
