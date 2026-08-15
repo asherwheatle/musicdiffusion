@@ -1,0 +1,9 @@
+[SETUP] Syncing dependencies with uv...
+[SETUP] BigVGAN already present, skipping clone.
+[RUN] Starting pipeline on Tue Aug 11 02:15:32 PM EDT 2026
+[RUN] Job ID: 39202811  ->  output dir: output/job_39202811
+[RUN] GPU info:
+NVIDIA L4, 23034 MiB
+NVIDIA L4, 23034 MiB
+[RUN] Done on Tue Aug 11 02:15:32 PM EDT 2026
+[RUN] Results saved to: output/job_39202811

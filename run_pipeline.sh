@@ -89,9 +89,12 @@ echo "[RUN] Job ID: $SLURM_JOB_ID  ->  output dir: $OUTPUT_DIR"
 echo "[RUN] GPU info:"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
+DATA_ROOT="/orange/ufdatastudios/asherwheatle/DEAM_audio"
+
 python mood_diffusion.py \
     --mode full \
-    --audio_dir data/DEAM_audio/MEMD_audio \
+    --audio_dir "$DATA_ROOT/MEMD_audio" \
+    --annotations_dir "$DATA_ROOT/DEAM_Annotations" \
     --output_dir "$OUTPUT_DIR"
 
 echo "[RUN] Done on $(date)"

@@ -1,0 +1,109 @@
+Resolved 70 packages in 18ms
+   Building musicdiffusion @ file:///home/asherwheatle/diffusion/musicdiffusion
+Downloading networkx (2.0MiB)
+Downloading sympy (6.0MiB)
+Downloading matplotlib (7.9MiB)
+Downloading nvidia-nvjitlink-cu12 (37.4MiB)
+Downloading numpy (17.1MiB)
+Downloading nvidia-cublas-cu12 (581.4MiB)
+Downloading nvidia-cusolver-cu12 (248.3MiB)
+Downloading nvidia-cusparselt-cu12 (149.5MiB)
+Downloading numba (3.6MiB)
+Downloading llvmlite (53.7MiB)
+Downloading nvidia-cudnn-cu12 (693.2MiB)
+Downloading nvidia-curand-cu12 (60.7MiB)
+Downloading nvidia-cufft-cu12 (184.2MiB)
+Downloading scipy (33.6MiB)
+Downloading nvidia-cuda-nvrtc-cu12 (83.9MiB)
+Downloading nvidia-cuda-cupti-cu12 (9.8MiB)
+Downloading nvidia-cusparse-cu12 (278.5MiB)
+Downloading pillow (6.8MiB)
+Downloading nvidia-nccl-cu12 (192.0MiB)
+Downloading scikit-learn (8.7MiB)
+Downloading fonttools (4.8MiB)
+Downloading torch (1.0GiB)
+Downloading triton (149.3MiB)
+  × Failed to build `musicdiffusion @
+  │ file:///home/asherwheatle/diffusion/musicdiffusion`
+  ├─▶ The build backend returned an error
+  ╰─▶ Call to `hatchling.build.build_editable` failed (exit status: 1)
+
+      [stderr]
+      Traceback (most recent call last):
+        File "<string>", line 11, in <module>
+        File
+      "/home/asherwheatle/.cache/uv/builds-v0/.tmpFqbpY5/lib/python3.12/site-packages/hatchling/build.py",
+      line 83, in build_editable
+          return os.path.basename(next(builder.build(directory=wheel_directory,
+      versions=["editable"])))
+      
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/asherwheatle/.cache/uv/builds-v0/.tmpFqbpY5/lib/python3.12/site-packages/hatchling/builders/plugin/interface.py",
+      line 157, in build
+          artifact = version_api[version](directory, **build_data)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/asherwheatle/.cache/uv/builds-v0/.tmpFqbpY5/lib/python3.12/site-packages/hatchling/builders/wheel.py",
+      line 547, in build_editable
+          return self.build_editable_detection(directory, **build_data)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/asherwheatle/.cache/uv/builds-v0/.tmpFqbpY5/lib/python3.12/site-packages/hatchling/builders/wheel.py",
+      line 559, in build_editable_detection
+          for included_file in self.recurse_selected_project_files():
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/asherwheatle/.cache/uv/builds-v0/.tmpFqbpY5/lib/python3.12/site-packages/hatchling/builders/plugin/interface.py",
+      line 182, in recurse_selected_project_files
+          if self.config.only_include:
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/asherwheatle/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/functools.py",
+      line 998, in __get__
+          val = self.func(instance)
+                ^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/asherwheatle/.cache/uv/builds-v0/.tmpFqbpY5/lib/python3.12/site-packages/hatchling/builders/config.py",
+      line 715, in only_include
+          only_include = only_include_config.get("only-include",
+      self.default_only_include()) or self.packages
+      
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/asherwheatle/.cache/uv/builds-v0/.tmpFqbpY5/lib/python3.12/site-packages/hatchling/builders/wheel.py",
+      line 293, in default_only_include
+          return self.default_file_selection_options.only_include
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/asherwheatle/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/functools.py",
+      line 998, in __get__
+          val = self.func(instance)
+                ^^^^^^^^^^^^^^^^^^^
+        File
+      "/home/asherwheatle/.cache/uv/builds-v0/.tmpFqbpY5/lib/python3.12/site-packages/hatchling/builders/wheel.py",
+      line 281, in default_file_selection_options
+          raise ValueError(message)
+      ValueError: Unable to determine which files to ship
+      inside the wheel using the following heuristics:
+      https://hatch.pypa.io/latest/plugins/builder/wheel/#default-file-selection
+
+      The most likely cause of this is that there is no directory that matches
+      the name of your project (musicdiffusion).
+
+      At least one file selection option must be defined
+      in the `tool.hatch.build.targets.wheel` table, see:
+      https://hatch.pypa.io/latest/config/build/
+
+      As an example, if you intend to ship a directory named `foo` that
+      resides within a `src` directory located at the root of your project,
+      you can define the following:
+
+      [tool.hatch.build.targets.wheel]
+      packages = ["src/foo"]
+
+
+hint: Build failures usually indicate a problem with the package or the build environmentTraceback (most recent call last):
+  File "/home/asherwheatle/diffusion/musicdiffusion/mood_diffusion.py", line 35, in <module>
+    import torch
+ModuleNotFoundError: No module named 'torch'

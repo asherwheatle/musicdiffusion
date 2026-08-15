@@ -1,0 +1,13 @@
+Resolved 70 packages in 16ms
+Checked 64 packages in 197ms
+/home/asherwheatle/.venvs/musicdiffusion/lib/python3.12/site-packages/torch/nn/utils/weight_norm.py:143: FutureWarning: `torch.nn.utils.weight_norm` is deprecated in favor of `torch.nn.utils.parametrizations.weight_norm`.
+  WeightNorm.apply(module, name, dim)
+Traceback (most recent call last):
+  File "/home/asherwheatle/diffusion/musicdiffusion/mood_diffusion.py", line 298, in <module>
+    main()
+  File "/home/asherwheatle/diffusion/musicdiffusion/mood_diffusion.py", line 131, in main
+    waveform, sr = load_deam_song(
+                   ^^^^^^^^^^^^^^^
+  File "/home/asherwheatle/diffusion/musicdiffusion/pipeline.py", line 119, in load_deam_song
+    raise FileNotFoundError(f"No MP3 files found in {audio_dir}")
+FileNotFoundError: No MP3 files found in data/DEAM_audio/MEMD_audio

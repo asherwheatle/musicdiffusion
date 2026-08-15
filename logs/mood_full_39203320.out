@@ -1,0 +1,27 @@
+[SETUP] Syncing dependencies with uv...
+[SETUP] BigVGAN already present, skipping clone.
+[RUN] Starting pipeline on Tue Aug 11 02:26:52 PM EDT 2026
+[RUN] Job ID: 39203320  ->  output dir: output/job_39203320
+[RUN] GPU info:
+NVIDIA L4, 23034 MiB
+NVIDIA L4, 23034 MiB
+============================================================
+ Music Mood Diffusion Pipeline
+ ControlNet-DiT for Text-Conditioned Audio Mood Editing
+============================================================
+  Mode            : full
+  Device          : cuda
+  Mood text       : "dark and mysterious"
+  Edit strength   : 0.35
+============================================================
+
+[STEP 1] Loading BigVGAN vocoder...
+[BIGVGAN] Loading from local clone: /home/asherwheatle/diffusion/musicdiffusion/bigvgan_v2_44khz_128band_512x ...
+Loading config.json from local directory
+Loading weights from local directory
+Removing weight norm...
+[BIGVGAN] Loaded. SR=44100, n_mels=128, hop=512
+
+[STEP 2] Loading DEAM song...
+[RUN] Done on Tue Aug 11 02:27:26 PM EDT 2026
+[RUN] Results saved to: output/job_39203320
