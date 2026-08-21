@@ -23,7 +23,7 @@ Usage (on a GPU node, inside the venv):
       --ckpt_dir output/job_39423912 \
       --audio_dir /orange/ufdatastudios/asherwheatle/DEAM_audio/MEMD_audio \
       --annotations_dir /orange/ufdatastudios/asherwheatle/DEAM_audio/DEAM_Annotations \
-      --clap_ckpt music_audioset_epoch_15_esc_90.pt \
+      --clap_ckpt music_audioset_epoch_15_esc_90.14.pt \
       --n_songs 20 --n_val 100 --edit_strength 0.5
 
 Outputs (written to --ckpt_dir):
@@ -113,7 +113,7 @@ class Clap:
                 "laion_clap is not installed. Run:  uv pip install laion-clap\n"
                 "and download the music checkpoint:\n"
                 "  wget https://huggingface.co/lukewys/laion_clap/resolve/main/"
-                "music_audioset_epoch_15_esc_90.pt"
+                "music_audioset_epoch_15_esc_90.14.pt"
             ) from e
         # The music checkpoint uses the HTSAT-base audio encoder, no fusion.
         self.model = laion_clap.CLAP_Module(enable_fusion=False,
