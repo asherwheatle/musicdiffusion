@@ -1,0 +1,374 @@
+"""Objective evaluation of the mood-editing model.
+
+Two independent judges, neither of which the model was trained against:
+
+  1. CLAP (LAION music checkpoint) — an external audio<->text model. Measures
+     whether an edit actually moved the audio toward the target mood text.
+     Reported as:
+       * clap_gain   = cos(edited, target) - cos(original, target)  (did it move?)
+       * transfer    = does the target mood rank #1 among all 5 mood prompts?
+
+  2. Chroma similarity — cosine between the original and edited chroma (pitch-class)
+     features. Measures whether the melody/harmony was preserved (the ControlNet
+     claim). CLAP is blind to this, so the two together capture the real
+     trade-off: mood changed AND tune kept.
+
+Before trusting CLAP, we VALIDATE it: run it on the *original* DEAM clips against
+their ground-truth valence/arousal mood labels. If CLAP can't tell the 5 moods
+apart on real audio (accuracy near the 20% chance line), it can't judge edits
+either, and the CLAP numbers below should be discarded.
+
+Usage (on a GPU node, inside the venv):
+  python evaluate.py \
+      --ckpt_dir output/job_39423912 \
+      --audio_dir /orange/ufdatastudios/asherwheatle/DEAM_audio/MEMD_audio \
+      --annotations_dir /orange/ufdatastudios/asherwheatle/DEAM_audio/DEAM_Annotations \
+      --clap_ckpt music_audioset_epoch_15_esc_90.pt \
+      --n_songs 20 --n_val 100 --edit_strength 0.5
+
+Outputs (written to --ckpt_dir):
+  eval_edits.csv        one row per (song, target_mood): CLAP gain, transfer, chroma
+  clap_validation.csv   one row per validation song: gt mood vs CLAP-predicted mood
+  eval_summary.txt      aggregated verdict
+"""
+
+import os
+import csv
+import glob
+import argparse
+
+import numpy as np
+import torch
+import librosa
+
+from config import DiffusionConfig
+from autoencoder import LatentAutoencoder
+from dit import MoodDiT
+from melody import MelodyEncoder, MelodyExtractor
+from text_encoder import TextEncoder
+from diffusion import GaussianDiffusion
+from pipeline import (load_bigvgan, bigvgan_mel_spectrogram, FixedMelNormalizer,
+                      pad_spectrogram)
+from inference import edit_mood
+from annotations import (load_annotations, mood_from_va, song_id_from_filename)
+
+
+# The five moods the model was trained on, expanded into caption-like prompts
+# (CLAP was trained on natural captions, not bare tags).
+MOOD_PROMPTS = {
+    "happy and uplifting":    "a happy and uplifting piece of music",
+    "energetic and powerful": "an energetic and powerful piece of music",
+    "calm and peaceful":      "a calm and peaceful piece of music",
+    "sad and melancholic":    "a sad and melancholic piece of music",
+    "dark and mysterious":    "a dark and mysterious piece of music",
+}
+MOODS = list(MOOD_PROMPTS.keys())
+
+CLAP_SR = 48000  # LAION-CLAP expects 48 kHz mono
+
+
+# ---------------------------------------------------------------------------
+# Audio helpers
+# ---------------------------------------------------------------------------
+def load_clip(path: str, sr: int, start_s: float, dur_s: float) -> np.ndarray:
+    """Load a fixed-length mono clip. Matches dataset._load_clip so the audio
+    lines up with the 15-30 s window its VA annotation covers."""
+    wav, _ = librosa.load(path, sr=sr, mono=True, offset=start_s, duration=dur_s)
+    if len(wav) == 0:
+        wav, _ = librosa.load(path, sr=sr, mono=True, duration=dur_s)
+    n = int(dur_s * sr)
+    if len(wav) > n:
+        wav = wav[:n]
+    elif len(wav) < n:
+        wav = np.pad(wav, (0, n - len(wav)))
+    return wav.astype(np.float32)
+
+
+def chroma_similarity(wav_a: np.ndarray, wav_b: np.ndarray, sr: int) -> float:
+    """Mean per-frame cosine similarity of chroma (pitch-class) features.
+    ~1.0 = melody/harmony preserved, ~0 = unrelated. This is the melody-
+    preservation axis CLAP cannot see."""
+    ca = librosa.feature.chroma_cqt(y=wav_a, sr=sr)  # (12, T)
+    cb = librosa.feature.chroma_cqt(y=wav_b, sr=sr)
+    t = min(ca.shape[1], cb.shape[1])
+    ca, cb = ca[:, :t], cb[:, :t]
+    ca = ca / (np.linalg.norm(ca, axis=0, keepdims=True) + 1e-8)
+    cb = cb / (np.linalg.norm(cb, axis=0, keepdims=True) + 1e-8)
+    return float((ca * cb).sum(axis=0).mean())
+
+
+def _l2(x: np.ndarray) -> np.ndarray:
+    return x / (np.linalg.norm(x, axis=-1, keepdims=True) + 1e-8)
+
+
+# ---------------------------------------------------------------------------
+# CLAP wrapper
+# ---------------------------------------------------------------------------
+class Clap:
+    def __init__(self, ckpt_path: str):
+        try:
+            import laion_clap
+        except ImportError as e:
+            raise ImportError(
+                "laion_clap is not installed. Run:  uv pip install laion-clap\n"
+                "and download the music checkpoint:\n"
+                "  wget https://huggingface.co/lukewys/laion_clap/resolve/main/"
+                "music_audioset_epoch_15_esc_90.pt"
+            ) from e
+        # The music checkpoint uses the HTSAT-base audio encoder, no fusion.
+        self.model = laion_clap.CLAP_Module(enable_fusion=False,
+                                            amodel="HTSAT-base")
+        if ckpt_path and os.path.exists(ckpt_path):
+            print(f"[CLAP] Loading music checkpoint: {ckpt_path}")
+            self.model.load_ckpt(ckpt_path)
+        else:
+            print("[CLAP] WARNING: no music checkpoint given, loading the "
+                  "default general-audio checkpoint (weaker at musical mood).")
+            self.model.load_ckpt()
+        self.model.eval()
+        # Precompute the 5 mood-prompt text embeddings once.
+        self.text_emb = _l2(self.model.get_text_embedding(
+            [MOOD_PROMPTS[m] for m in MOODS], use_tensor=False))  # (5, D)
+
+    @torch.no_grad()
+    def audio_embed(self, wav_44k: np.ndarray, sr: int) -> np.ndarray:
+        wav = librosa.resample(wav_44k, orig_sr=sr, target_sr=CLAP_SR)
+        x = wav[None, :].astype(np.float32)  # (1, samples)
+        emb = self.model.get_audio_embedding_from_data(x=x, use_tensor=False)
+        return _l2(emb)[0]  # (D,)
+
+    def cos_to_moods(self, audio_emb: np.ndarray) -> np.ndarray:
+        """Cosine of one audio embedding against all 5 mood prompts -> (5,)."""
+        return self.text_emb @ audio_emb
+
+
+# ---------------------------------------------------------------------------
+# Model loading (mirrors mood_diffusion.py edit mode)
+# ---------------------------------------------------------------------------
+def load_models(cfg: DiffusionConfig, ckpt_dir: str, sample_wav: np.ndarray,
+                bigvgan_model):
+    device = cfg.device
+
+    ae = LatentAutoencoder(cfg.ae_channels).to(device)
+    ae.load_state_dict(torch.load(os.path.join(ckpt_dir, "autoencoder.pt"),
+                                  map_location=device, weights_only=True))
+    ae.eval()
+
+    # Infer latent shape from a real clip.
+    normalizer = FixedMelNormalizer()
+    mel = bigvgan_mel_spectrogram(
+        torch.FloatTensor(sample_wav).unsqueeze(0), bigvgan_model)
+    mel_norm = normalizer.normalize(mel)
+    mel_padded, _ = pad_spectrogram(mel_norm.unsqueeze(0))
+    with torch.no_grad():
+        z = ae.encoder(mel_padded.to(device))
+    _, C_lat, H_lat, W_lat = z.shape
+
+    dit = MoodDiT(
+        latent_channels=C_lat, latent_h=H_lat,
+        d_model=cfg.d_model, n_heads=cfg.n_heads,
+        n_blocks=cfg.n_dit_blocks, n_control_blocks=cfg.n_controlnet_blocks,
+    ).to(device)
+    melody_enc = MelodyEncoder(cfg.d_model, cfg.melody_top_k).to(device)
+    text_enc = TextEncoder(cfg.d_model, cfg.text_max_len).to(device)
+
+    ckpt = torch.load(os.path.join(ckpt_dir, "diffusion.pt"),
+                      map_location=device, weights_only=True)
+    dit.load_state_dict(ckpt["dit"])
+    melody_enc.load_state_dict(ckpt["melody_enc"])
+    text_enc.load_state_dict(ckpt["text_enc"])
+    latent_mean = ckpt["latent_mean"].to(device)
+    latent_std = ckpt["latent_std"].to(device)
+    dit.eval(); melody_enc.eval(); text_enc.eval()
+
+    diffusion = GaussianDiffusion(cfg.num_train_timesteps, device)
+    return ae, dit, melody_enc, text_enc, diffusion, latent_mean, latent_std
+
+
+def pick_annotated_songs(audio_dir: str, va: dict, n: int) -> list:
+    """Return n song file paths (spread evenly) that have VA annotations."""
+    files = sorted(glob.glob(os.path.join(audio_dir, "*.mp3")))
+    files = [f for f in files if song_id_from_filename(f) in va]
+    if not files:
+        raise FileNotFoundError(f"No annotated MP3s found in {audio_dir}")
+    if n < len(files):
+        idxs = np.unique(np.linspace(0, len(files) - 1, n).astype(int))
+        files = [files[i] for i in idxs]
+    return files
+
+
+# ---------------------------------------------------------------------------
+# Stage 1: validate CLAP on original clips vs ground-truth mood
+# ---------------------------------------------------------------------------
+def validate_clap(clap: Clap, files: list, va: dict, sr: int,
+                  start_s: float, dur_s: float, out_csv: str) -> float:
+    print(f"\n{'='*60}\n CLAP VALIDATION on {len(files)} original clips\n{'='*60}")
+    rows, correct = [], 0
+    per_true = {m: [0, 0] for m in MOODS}  # mood -> [correct, total]
+    for path in files:
+        sid = song_id_from_filename(path)
+        gt = mood_from_va(*va[sid])
+        wav = load_clip(path, sr, start_s, dur_s)
+        cos = clap.cos_to_moods(clap.audio_embed(wav, sr))
+        pred = MOODS[int(np.argmax(cos))]
+        ok = (pred == gt)
+        correct += ok
+        per_true[gt][0] += ok
+        per_true[gt][1] += 1
+        rows.append({"song": os.path.basename(path), "song_id": sid,
+                     "gt_mood": gt, "clap_pred": pred, "correct": int(ok)})
+
+    acc = correct / len(files)
+    with open(out_csv, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["song", "song_id", "gt_mood",
+                                          "clap_pred", "correct"])
+        w.writeheader(); w.writerows(rows)
+
+    print(f"[CLAP-VAL] Top-1 accuracy: {acc:.3f}  (chance = {1/len(MOODS):.3f})")
+    for m in MOODS:
+        c, tot = per_true[m]
+        if tot:
+            print(f"           {m:24s}: {c}/{tot} = {c/tot:.2f}")
+    verdict = ("LEGITIMATE — clearly above chance" if acc >= 0.35 else
+               "WEAK — near chance, treat CLAP edit scores with caution")
+    print(f"[CLAP-VAL] Verdict: {verdict}")
+    print(f"[CLAP-VAL] Wrote {out_csv}")
+    return acc
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: edit N songs x 5 moods, score each edit
+# ---------------------------------------------------------------------------
+def evaluate_edits(cfg, clap, files, va, sr, models, out_csv):
+    ae, dit, melody_enc, text_enc, diffusion, lat_mean, lat_std = models
+    fieldnames = ["song", "song_id", "gt_mood", "target_mood",
+                  "clap_cos_original", "clap_cos_edited", "clap_gain",
+                  "clap_pred_edited", "transfer_success", "chroma_sim",
+                  "edit_strength"]
+    rows = []
+    print(f"\n{'='*60}\n EDIT EVALUATION: {len(files)} songs x {len(MOODS)} "
+          f"moods = {len(files)*len(MOODS)} edits\n{'='*60}")
+
+    for path in files:
+        sid = song_id_from_filename(path)
+        gt = mood_from_va(*va[sid])
+        wav_orig = load_clip(path, sr, cfg.clip_start_seconds, cfg.clip_seconds)
+        waveform = torch.FloatTensor(wav_orig).unsqueeze(0)
+
+        orig_emb = clap.audio_embed(wav_orig, sr)
+        orig_cos = clap.cos_to_moods(orig_emb)  # (5,)
+
+        for target in MOODS:
+            wav_edit = edit_mood(
+                waveform, target, ae, dit, melody_enc, text_enc, diffusion,
+                _bigvgan, cfg, lat_mean, lat_std,
+            ).squeeze(0).numpy()
+
+            edit_emb = clap.audio_embed(wav_edit, sr)
+            edit_cos = clap.cos_to_moods(edit_emb)
+            ti = MOODS.index(target)
+            pred = MOODS[int(np.argmax(edit_cos))]
+            rows.append({
+                "song": os.path.basename(path), "song_id": sid, "gt_mood": gt,
+                "target_mood": target,
+                "clap_cos_original": round(float(orig_cos[ti]), 4),
+                "clap_cos_edited": round(float(edit_cos[ti]), 4),
+                "clap_gain": round(float(edit_cos[ti] - orig_cos[ti]), 4),
+                "clap_pred_edited": pred,
+                "transfer_success": int(pred == target),
+                "chroma_sim": round(chroma_similarity(wav_orig, wav_edit, sr), 4),
+                "edit_strength": cfg.edit_strength,
+            })
+        print(f"  {os.path.basename(path)} (gt={gt}) done")
+
+    with open(out_csv, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader(); w.writerows(rows)
+    print(f"[EDIT] Wrote {out_csv}")
+    return rows
+
+
+def summarize(rows, clap_acc, out_txt):
+    lines = ["=" * 60, " EVALUATION SUMMARY", "=" * 60,
+             f" CLAP validation top-1 accuracy : {clap_acc:.3f} "
+             f"(chance {1/len(MOODS):.3f})", ""]
+    lines.append(f" {'target mood':24s} {'mean gain':>10s} "
+                 f"{'transfer%':>10s} {'chroma':>8s}")
+    for m in MOODS:
+        sub = [r for r in rows if r["target_mood"] == m]
+        if not sub:
+            continue
+        gain = np.mean([r["clap_gain"] for r in sub])
+        tr = 100 * np.mean([r["transfer_success"] for r in sub])
+        ch = np.mean([r["chroma_sim"] for r in sub])
+        lines.append(f" {m:24s} {gain:>10.4f} {tr:>9.1f}% {ch:>8.3f}")
+    lines += ["",
+              f" Overall mean CLAP gain   : {np.mean([r['clap_gain'] for r in rows]):.4f}",
+              f" Overall transfer success : {100*np.mean([r['transfer_success'] for r in rows]):.1f}%",
+              f" Overall chroma preserved : {np.mean([r['chroma_sim'] for r in rows]):.3f}",
+              "",
+              " Read: gain>0 and transfer high => mood moved toward the text.",
+              " chroma near 1 => melody kept. You want BOTH high at once.",
+              "=" * 60]
+    text = "\n".join(lines)
+    print("\n" + text)
+    with open(out_txt, "w") as f:
+        f.write(text + "\n")
+    print(f"[SUMMARY] Wrote {out_txt}")
+
+
+# ---------------------------------------------------------------------------
+_bigvgan = None  # module-global so edit_mood gets the loaded vocoder
+
+
+def main():
+    global _bigvgan
+    p = argparse.ArgumentParser(description="CLAP + chroma evaluation of mood edits")
+    p.add_argument("--ckpt_dir", required=True,
+                   help="Dir with autoencoder.pt + diffusion.pt (the job folder)")
+    p.add_argument("--audio_dir", required=True)
+    p.add_argument("--annotations_dir", required=True)
+    p.add_argument("--clap_ckpt", default=None,
+                   help="Path to music_audioset_epoch_15_esc_90.pt")
+    p.add_argument("--n_songs", type=int, default=20, help="Songs to edit")
+    p.add_argument("--n_val", type=int, default=100,
+                   help="Songs for CLAP validation (cheap, no editing)")
+    p.add_argument("--edit_strength", type=float, default=0.5)
+    p.add_argument("--seed", type=int, default=0)
+    args = p.parse_args()
+
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    cfg = DiffusionConfig()
+    cfg.edit_strength = args.edit_strength
+
+    va = load_annotations(args.annotations_dir, cfg.clip_start_seconds,
+                          cfg.clip_seconds)
+
+    print("[STEP] Loading BigVGAN...")
+    _bigvgan = load_bigvgan(cfg.device)
+    sr = _bigvgan.h.sampling_rate
+
+    print("[STEP] Loading CLAP...")
+    clap = Clap(args.clap_ckpt)
+
+    # Stage 1: validate CLAP (cheap — more songs for a better estimate)
+    val_files = pick_annotated_songs(args.audio_dir, va, args.n_val)
+    clap_acc = validate_clap(clap, val_files, va, sr, cfg.clip_start_seconds,
+                             cfg.clip_seconds,
+                             os.path.join(args.ckpt_dir, "clap_validation.csv"))
+
+    # Stage 2: load the model and evaluate edits
+    edit_files = pick_annotated_songs(args.audio_dir, va, args.n_songs)
+    sample = load_clip(edit_files[0], sr, cfg.clip_start_seconds, cfg.clip_seconds)
+    print("[STEP] Loading mood-diffusion checkpoints...")
+    models = load_models(cfg, args.ckpt_dir, sample, _bigvgan)
+
+    rows = evaluate_edits(cfg, clap, edit_files, va, sr, models,
+                          os.path.join(args.ckpt_dir, "eval_edits.csv"))
+    summarize(rows, clap_acc, os.path.join(args.ckpt_dir, "eval_summary.txt"))
+
+
+if __name__ == "__main__":
+    main()
