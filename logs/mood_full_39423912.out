@@ -1,0 +1,563 @@
+[SETUP] Syncing dependencies with uv...
+[SETUP] BigVGAN already present, skipping clone.
+[RUN] Starting pipeline on Sat Aug 15 12:59:30 AM EDT 2026
+[RUN] Job ID: 39423912  ->  output dir: output/job_39423912
+[RUN] GPU info:
+NVIDIA L4, 23034 MiB
+NVIDIA L4, 23034 MiB
+============================================================
+ Music Mood Diffusion Pipeline
+ ControlNet-DiT for Text-Conditioned Audio Mood Editing
+============================================================
+  Mode            : full
+  Device          : cuda
+  Mood text       : "dark and mysterious"
+  Edit strength   : 0.35
+============================================================
+
+[STEP 1] Loading BigVGAN vocoder...
+[BIGVGAN] Loading from local clone: /home/asherwheatle/diffusion/musicdiffusion/bigvgan_v2_44khz_128band_512x ...
+Loading config.json from local directory
+Loading weights from local directory
+Removing weight norm...
+[BIGVGAN] Loaded. SR=44100, n_mels=128, hop=512
+
+[STEP 2] Loading DEAM song...
+[DATA] Loading: 10.mp3 (index 0)
+[DATA] Waveform shape: torch.Size([1, 661500]), SR: 44100, Duration: 15.00s
+  Saved original: output/job_39423912/original.wav
+
+[STEP 3] Computing mel spectrogram...
+  Mel shape: torch.Size([1, 128, 1291])
+
+[STEP 4] Building training set (all songs)...
+[ANNOT] Dynamic annotations: /orange/ufdatastudios/asherwheatle/DEAM_audio/DEAM_Annotations/annotations/annotations averaged per song/dynamic (per second annotations)/valence.csv
+[ANNOT] 1802 songs with valence+arousal (window 15-30s)
+[WARNING] Min value of input waveform signal is -1.0116474628448486
+[WARNING] Min value of input waveform signal is -1.12833571434021
+[WARNING] Min value of input waveform signal is -1.257198691368103
+[WARNING] Min value of input waveform signal is -1.135895013809204
+[WARNING] Min value of input waveform signal is -1.0164179801940918
+[WARNING] Max value of input waveform signal is 1.0040580034255981
+[WARNING] Min value of input waveform signal is -1.092047929763794
+[WARNING] Max value of input waveform signal is 1.037724494934082
+[WARNING] Min value of input waveform signal is -1.027913212776184
+[WARNING] Max value of input waveform signal is 1.033815860748291
+[WARNING] Min value of input waveform signal is -1.0707532167434692
+[WARNING] Max value of input waveform signal is 1.0583391189575195
+[WARNING] Min value of input waveform signal is -1.035015344619751
+[WARNING] Max value of input waveform signal is 1.0471197366714478
+[WARNING] Min value of input waveform signal is -1.0090436935424805
+[WARNING] Max value of input waveform signal is 1.0253052711486816
+[WARNING] Min value of input waveform signal is -1.0233103036880493
+[WARNING] Max value of input waveform signal is 1.040366530418396
+[WARNING] Min value of input waveform signal is -1.300208568572998
+[WARNING] Max value of input waveform signal is 1.1235848665237427
+[WARNING] Max value of input waveform signal is 1.0227761268615723
+[WARNING] Min value of input waveform signal is -1.0092905759811401
+[WARNING] Min value of input waveform signal is -1.0111557245254517
+[WARNING] Max value of input waveform signal is 1.3456379175186157
+[WARNING] Min value of input waveform signal is -1.1184567213058472
+[WARNING] Max value of input waveform signal is 1.1167819499969482
+[WARNING] Min value of input waveform signal is -1.358917474746704
+[WARNING] Max value of input waveform signal is 1.3340458869934082
+[WARNING] Min value of input waveform signal is -1.063570261001587
+[WARNING] Max value of input waveform signal is 1.071380615234375
+[WARNING] Min value of input waveform signal is -1.015174150466919
+[WARNING] Min value of input waveform signal is -1.1513925790786743
+[WARNING] Max value of input waveform signal is 1.1710792779922485
+[WARNING] Max value of input waveform signal is 1.0032116174697876
+[WARNING] Min value of input waveform signal is -1.2513248920440674
+[WARNING] Max value of input waveform signal is 1.171754240989685
+[WARNING] Min value of input waveform signal is -1.023889422416687
+[WARNING] Min value of input waveform signal is -1.2634272575378418
+[WARNING] Max value of input waveform signal is 1.0829434394836426
+[WARNING] Max value of input waveform signal is 1.0015109777450562
+[WARNING] Min value of input waveform signal is -1.2599382400512695
+[WARNING] Max value of input waveform signal is 1.1920433044433594
+[WARNING] Min value of input waveform signal is -1.0032531023025513
+[WARNING] Min value of input waveform signal is -1.0197862386703491
+[WARNING] Max value of input waveform signal is 1.0278980731964111
+[WARNING] Max value of input waveform signal is 1.0053305625915527
+[WARNING] Min value of input waveform signal is -1.0153263807296753
+[WARNING] Min value of input waveform signal is -1.1145292520523071
+[WARNING] Max value of input waveform signal is 1.097787618637085
+[WARNING] Min value of input waveform signal is -1.0438562631607056
+[WARNING] Max value of input waveform signal is 1.0341272354125977
+[WARNING] Min value of input waveform signal is -1.0027183294296265
+[WARNING] Min value of input waveform signal is -1.0218253135681152
+[WARNING] Max value of input waveform signal is 1.0429067611694336
+[WARNING] Min value of input waveform signal is -1.040639877319336
+[WARNING] Min value of input waveform signal is -1.0475132465362549
+[WARNING] Max value of input waveform signal is 1.0544586181640625
+[WARNING] Min value of input waveform signal is -1.0016459226608276
+[WARNING] Min value of input waveform signal is -1.0085519552230835
+[WARNING] Min value of input waveform signal is -1.0266029834747314
+[WARNING] Max value of input waveform signal is 1.0344560146331787
+[WARNING] Min value of input waveform signal is -1.0335062742233276
+[WARNING] Max value of input waveform signal is 1.0524969100952148
+[WARNING] Max value of input waveform signal is 1.0192785263061523
+[WARNING] Min value of input waveform signal is -1.0457558631896973
+[WARNING] Max value of input waveform signal is 1.0274326801300049
+[WARNING] Min value of input waveform signal is -1.0226079225540161
+[WARNING] Max value of input waveform signal is 1.041843056678772
+[WARNING] Min value of input waveform signal is -1.014680027961731
+[WARNING] Max value of input waveform signal is 1.0205762386322021
+[WARNING] Min value of input waveform signal is -1.0829616785049438
+[WARNING] Max value of input waveform signal is 1.0687164068222046
+[WARNING] Min value of input waveform signal is -1.0785868167877197
+[WARNING] Max value of input waveform signal is 1.0825185775756836
+[WARNING] Min value of input waveform signal is -1.014577031135559
+[WARNING] Max value of input waveform signal is 1.0414665937423706
+[WARNING] Min value of input waveform signal is -1.031412124633789
+[WARNING] Min value of input waveform signal is -1.0263384580612183
+[WARNING] Max value of input waveform signal is 1.0223451852798462
+[WARNING] Min value of input waveform signal is -1.0059541463851929
+[WARNING] Min value of input waveform signal is -1.0235933065414429
+[WARNING] Max value of input waveform signal is 1.0221747159957886
+[WARNING] Min value of input waveform signal is -1.0065103769302368
+[WARNING] Max value of input waveform signal is 1.0049949884414673
+[WARNING] Min value of input waveform signal is -1.0183029174804688
+[WARNING] Max value of input waveform signal is 1.005527377128601
+[WARNING] Min value of input waveform signal is -1.0007472038269043
+[WARNING] Min value of input waveform signal is -1.0445297956466675
+[WARNING] Max value of input waveform signal is 1.047696828842163
+[WARNING] Max value of input waveform signal is 1.0673813819885254
+[WARNING] Min value of input waveform signal is -1.0049285888671875
+[WARNING] Max value of input waveform signal is 1.0131587982177734
+[WARNING] Min value of input waveform signal is -1.0234936475753784
+[WARNING] Max value of input waveform signal is 1.0181336402893066
+[WARNING] Min value of input waveform signal is -1.072953462600708
+[WARNING] Max value of input waveform signal is 1.0545543432235718
+[WARNING] Max value of input waveform signal is 1.008899450302124
+[WARNING] Min value of input waveform signal is -1.0366790294647217
+[WARNING] Max value of input waveform signal is 1.032341718673706
+[WARNING] Min value of input waveform signal is -1.0743727684020996
+[WARNING] Max value of input waveform signal is 1.0937535762786865
+[WARNING] Min value of input waveform signal is -1.020914077758789
+[WARNING] Max value of input waveform signal is 1.052846908569336
+[WARNING] Min value of input waveform signal is -1.034411907196045
+[WARNING] Max value of input waveform signal is 1.0292646884918213
+[WARNING] Min value of input waveform signal is -1.0111035108566284
+[WARNING] Max value of input waveform signal is 1.0416831970214844
+[WARNING] Min value of input waveform signal is -1.0840946435928345
+[WARNING] Max value of input waveform signal is 1.0409594774246216
+[WARNING] Min value of input waveform signal is -1.035078525543213
+[WARNING] Min value of input waveform signal is -1.113844633102417
+[WARNING] Max value of input waveform signal is 1.0829389095306396
+[WARNING] Min value of input waveform signal is -1.082611083984375
+[WARNING] Max value of input waveform signal is 1.090734601020813
+[WARNING] Max value of input waveform signal is 1.0292335748672485
+[WARNING] Min value of input waveform signal is -1.046547293663025
+[WARNING] Max value of input waveform signal is 1.0282899141311646
+[WARNING] Min value of input waveform signal is -1.0192774534225464
+[WARNING] Min value of input waveform signal is -1.1007869243621826
+[WARNING] Max value of input waveform signal is 1.084575891494751
+[WARNING] Min value of input waveform signal is -1.0140163898468018
+[WARNING] Max value of input waveform signal is 1.016019582748413
+[WARNING] Min value of input waveform signal is -1.0030415058135986
+[WARNING] Min value of input waveform signal is -1.0958667993545532
+[WARNING] Max value of input waveform signal is 1.052890658378601
+[WARNING] Min value of input waveform signal is -1.0584174394607544
+[WARNING] Max value of input waveform signal is 1.0318267345428467
+[WARNING] Min value of input waveform signal is -1.000451922416687
+[WARNING] Max value of input waveform signal is 1.0163123607635498
+[WARNING] Min value of input waveform signal is -1.0303746461868286
+[WARNING] Max value of input waveform signal is 1.0453616380691528
+[WARNING] Min value of input waveform signal is -1.0540199279785156
+[WARNING] Min value of input waveform signal is -1.056872844696045
+[WARNING] Max value of input waveform signal is 1.0782525539398193
+[WARNING] Min value of input waveform signal is -1.1245156526565552
+[WARNING] Max value of input waveform signal is 1.0496127605438232
+[WARNING] Min value of input waveform signal is -1.0216989517211914
+[WARNING] Max value of input waveform signal is 1.0630452632904053
+[WARNING] Min value of input waveform signal is -1.0853893756866455
+[WARNING] Max value of input waveform signal is 1.0279176235198975
+[WARNING] Min value of input waveform signal is -1.0594425201416016
+[WARNING] Max value of input waveform signal is 1.0300174951553345
+[WARNING] Min value of input waveform signal is -1.002068281173706
+[WARNING] Max value of input waveform signal is 1.0093246698379517
+[WARNING] Min value of input waveform signal is -1.0345760583877563
+[WARNING] Max value of input waveform signal is 1.0023788213729858
+[WARNING] Min value of input waveform signal is -1.0739514827728271
+[WARNING] Min value of input waveform signal is -1.0651957988739014
+[WARNING] Max value of input waveform signal is 1.0512316226959229
+[WARNING] Min value of input waveform signal is -1.069983720779419
+[WARNING] Max value of input waveform signal is 1.087870717048645
+[WARNING] Max value of input waveform signal is 1.0115227699279785
+[WARNING] Min value of input waveform signal is -1.0665310621261597
+[WARNING] Max value of input waveform signal is 1.0865503549575806
+[WARNING] Min value of input waveform signal is -1.1104986667633057
+[WARNING] Max value of input waveform signal is 1.0916706323623657
+[WARNING] Min value of input waveform signal is -1.0881025791168213
+[WARNING] Max value of input waveform signal is 1.0641865730285645
+[WARNING] Max value of input waveform signal is 1.0151252746582031
+[WARNING] Min value of input waveform signal is -1.0018304586410522
+[WARNING] Max value of input waveform signal is 1.0795605182647705
+[WARNING] Min value of input waveform signal is -1.0440692901611328
+[WARNING] Max value of input waveform signal is 1.0388891696929932
+[WARNING] Min value of input waveform signal is -1.0039563179016113
+[WARNING] Max value of input waveform signal is 1.0162522792816162
+[WARNING] Min value of input waveform signal is -1.0013173818588257
+[WARNING] Min value of input waveform signal is -1.0404473543167114
+[WARNING] Max value of input waveform signal is 1.0082640647888184
+[WARNING] Min value of input waveform signal is -1.0247464179992676
+[WARNING] Max value of input waveform signal is 1.0659700632095337
+[WARNING] Min value of input waveform signal is -1.1175565719604492
+[WARNING] Max value of input waveform signal is 1.058129906654358
+[WARNING] Min value of input waveform signal is -1.0421900749206543
+[WARNING] Max value of input waveform signal is 1.0790554285049438
+[WARNING] Min value of input waveform signal is -1.0060436725616455
+[WARNING] Max value of input waveform signal is 1.0042439699172974
+[WARNING] Min value of input waveform signal is -1.006636619567871
+[WARNING] Min value of input waveform signal is -1.0327701568603516
+[WARNING] Max value of input waveform signal is 1.0307518243789673
+[WARNING] Min value of input waveform signal is -1.0298548936843872
+[WARNING] Max value of input waveform signal is 1.0628355741500854
+[WARNING] Max value of input waveform signal is 1.0342336893081665
+[WARNING] Min value of input waveform signal is -1.013761043548584
+[WARNING] Min value of input waveform signal is -1.0520821809768677
+[WARNING] Max value of input waveform signal is 1.0210825204849243
+[WARNING] Min value of input waveform signal is -1.1135358810424805
+[WARNING] Max value of input waveform signal is 1.1086349487304688
+[WARNING] Min value of input waveform signal is -1.0436943769454956
+[WARNING] Max value of input waveform signal is 1.0318191051483154
+[WARNING] Min value of input waveform signal is -1.0550150871276855
+[WARNING] Max value of input waveform signal is 1.0403789281845093
+[WARNING] Min value of input waveform signal is -1.0143744945526123
+[WARNING] Max value of input waveform signal is 1.0152713060379028
+[WARNING] Min value of input waveform signal is -1.01138174533844
+[WARNING] Max value of input waveform signal is 1.0315985679626465
+[WARNING] Min value of input waveform signal is -1.0893913507461548
+[WARNING] Max value of input waveform signal is 1.087967038154602
+[WARNING] Min value of input waveform signal is -1.0517714023590088
+[WARNING] Max value of input waveform signal is 1.0508798360824585
+[WARNING] Min value of input waveform signal is -1.013267159461975
+[WARNING] Max value of input waveform signal is 1.0109044313430786
+[WARNING] Min value of input waveform signal is -1.029847264289856
+[WARNING] Max value of input waveform signal is 1.0257256031036377
+[WARNING] Min value of input waveform signal is -1.0811514854431152
+[WARNING] Max value of input waveform signal is 1.040806531906128
+[WARNING] Min value of input waveform signal is -1.0963648557662964
+[WARNING] Max value of input waveform signal is 1.0393320322036743
+[WARNING] Min value of input waveform signal is -1.035690188407898
+[WARNING] Max value of input waveform signal is 1.0420198440551758
+[WARNING] Min value of input waveform signal is -1.020845651626587
+[WARNING] Max value of input waveform signal is 1.019919753074646
+[WARNING] Min value of input waveform signal is -1.033413290977478
+[WARNING] Max value of input waveform signal is 1.0416924953460693
+[WARNING] Min value of input waveform signal is -1.2747764587402344
+[WARNING] Max value of input waveform signal is 1.3804056644439697
+[WARNING] Min value of input waveform signal is -1.0012379884719849
+[WARNING] Min value of input waveform signal is -1.1308149099349976
+[WARNING] Max value of input waveform signal is 1.1042524576187134
+[WARNING] Min value of input waveform signal is -1.0011614561080933
+[WARNING] Max value of input waveform signal is 1.0180987119674683
+[WARNING] Min value of input waveform signal is -1.0321543216705322
+[WARNING] Max value of input waveform signal is 1.0263696908950806
+[WARNING] Min value of input waveform signal is -1.0426615476608276
+[WARNING] Max value of input waveform signal is 1.048616886138916
+[WARNING] Min value of input waveform signal is -1.080123782157898
+[WARNING] Max value of input waveform signal is 1.076646089553833
+[WARNING] Min value of input waveform signal is -1.0217158794403076
+[WARNING] Max value of input waveform signal is 1.0206334590911865
+[WARNING] Max value of input waveform signal is 1.0020560026168823
+[WARNING] Min value of input waveform signal is -1.089605450630188
+[WARNING] Max value of input waveform signal is 1.0961058139801025
+[WARNING] Min value of input waveform signal is -1.0086562633514404
+[WARNING] Max value of input waveform signal is 1.0500768423080444
+[WARNING] Min value of input waveform signal is -1.048693299293518
+[WARNING] Max value of input waveform signal is 1.0293313264846802
+[WARNING] Min value of input waveform signal is -1.024684190750122
+[WARNING] Max value of input waveform signal is 1.0225403308868408
+[WARNING] Min value of input waveform signal is -1.0083494186401367
+[WARNING] Max value of input waveform signal is 1.0579712390899658
+[WARNING] Min value of input waveform signal is -1.0083141326904297
+[WARNING] Max value of input waveform signal is 1.0025081634521484
+[WARNING] Min value of input waveform signal is -1.0019054412841797
+[WARNING] Min value of input waveform signal is -1.0313936471939087
+[WARNING] Max value of input waveform signal is 1.0321178436279297
+[WARNING] Min value of input waveform signal is -1.0623927116394043
+[WARNING] Max value of input waveform signal is 1.0201771259307861
+[WARNING] Max value of input waveform signal is 1.0220552682876587
+[WARNING] Max value of input waveform signal is 1.0092445611953735
+[WARNING] Min value of input waveform signal is -1.134033441543579
+[WARNING] Max value of input waveform signal is 1.1613692045211792
+[WARNING] Min value of input waveform signal is -1.0248563289642334
+[WARNING] Max value of input waveform signal is 1.0666298866271973
+[WARNING] Min value of input waveform signal is -1.0561472177505493
+[WARNING] Max value of input waveform signal is 1.0162174701690674
+[WARNING] Min value of input waveform signal is -1.0062520503997803
+[WARNING] Max value of input waveform signal is 1.011254906654358
+[WARNING] Min value of input waveform signal is -1.1160998344421387
+[WARNING] Max value of input waveform signal is 1.0921640396118164
+[WARNING] Min value of input waveform signal is -1.025904893875122
+[WARNING] Max value of input waveform signal is 1.029032588005066
+[WARNING] Min value of input waveform signal is -1.0027382373809814
+[WARNING] Min value of input waveform signal is -1.1064369678497314
+[WARNING] Max value of input waveform signal is 1.035718321800232
+[WARNING] Min value of input waveform signal is -1.0123480558395386
+[WARNING] Max value of input waveform signal is 1.041059970855713
+[WARNING] Min value of input waveform signal is -1.040907859802246
+[WARNING] Max value of input waveform signal is 1.0397764444351196
+[WARNING] Min value of input waveform signal is -1.1192772388458252
+[WARNING] Max value of input waveform signal is 1.0622631311416626
+[WARNING] Min value of input waveform signal is -1.1003508567810059
+[WARNING] Max value of input waveform signal is 1.1038997173309326
+[WARNING] Min value of input waveform signal is -1.008219599723816
+[WARNING] Min value of input waveform signal is -1.0923030376434326
+[WARNING] Max value of input waveform signal is 1.0739412307739258
+[WARNING] Min value of input waveform signal is -1.004922866821289
+[WARNING] Max value of input waveform signal is 1.0278578996658325
+[WARNING] Max value of input waveform signal is 1.003636360168457
+[WARNING] Min value of input waveform signal is -1.0204260349273682
+[WARNING] Max value of input waveform signal is 1.0130971670150757
+[WARNING] Min value of input waveform signal is -1.0514678955078125
+[WARNING] Max value of input waveform signal is 1.0381044149398804
+[DATA] Cached dataset to cache/deam_allsongs_15s+15s_annot.npz
+[DATA] Loaded 1802 songs, mood distribution: {'calm and peaceful': 231, 'happy and uplifting': 987, 'energetic and powerful': 212, 'dark and mysterious': 85, 'sad and melancholic': 287}
+
+[PHASE 1] Training latent autoencoder...
+
+============================================================
+ Training Latent Autoencoder (100 epochs)
+ Input: (1802, 1, 128, 1296) (1802 songs)  Device: cuda
+============================================================
+  Epoch    1 | MSE: 0.010707
+  Epoch   50 | MSE: 0.000630
+  Epoch  100 | MSE: 0.000495
+  Saved autoencoder: output/job_39423912/autoencoder.pt
+  AE reconstruction saved: output/job_39423912/ae_reconstruction.wav
+
+[PHASE 2] Training diffusion model...
+[DIFF] Latents: (1802, 32, 8, 81) (mean=0.1334, std=0.2032)
+[DIFF] Melody shape: (1802, 4, 1292)
+
+============================================================
+ Training Diffusion Model (10000 steps, 1802 songs, batch 16)
+ DiT blocks: 8 (4 w/ ControlNet)
+ d_model: 256  heads: 4
+ Mood distribution: {'calm and peaceful': 231, 'happy and uplifting': 987, 'energetic and powerful': 212, 'dark and mysterious': 85, 'sad and melancholic': 287}
+============================================================
+  Epoch    1 | Loss: 1.296487
+  Epoch   50 | Loss: 0.670415
+  Epoch  100 | Loss: 0.455122
+  Epoch  150 | Loss: 0.512661
+  Epoch  200 | Loss: 0.511466
+  Epoch  250 | Loss: 0.394051
+  Epoch  300 | Loss: 0.406513
+  Epoch  350 | Loss: 0.421486
+  Epoch  400 | Loss: 0.399340
+  Epoch  450 | Loss: 0.252359
+  Epoch  500 | Loss: 0.358472
+  Epoch  550 | Loss: 0.408805
+  Epoch  600 | Loss: 0.373550
+  Epoch  650 | Loss: 0.319520
+  Epoch  700 | Loss: 0.329617
+  Epoch  750 | Loss: 0.388616
+  Epoch  800 | Loss: 0.305867
+  Epoch  850 | Loss: 0.316008
+  Epoch  900 | Loss: 0.251538
+  Epoch  950 | Loss: 0.283267
+  Epoch 1000 | Loss: 0.369342
+  Epoch 1050 | Loss: 0.335195
+  Epoch 1100 | Loss: 0.286121
+  Epoch 1150 | Loss: 0.297216
+  Epoch 1200 | Loss: 0.257417
+  Epoch 1250 | Loss: 0.477476
+  Epoch 1300 | Loss: 0.332628
+  Epoch 1350 | Loss: 0.275323
+  Epoch 1400 | Loss: 0.305497
+  Epoch 1450 | Loss: 0.330480
+  Epoch 1500 | Loss: 0.246022
+  Epoch 1550 | Loss: 0.246438
+  Epoch 1600 | Loss: 0.421747
+  Epoch 1650 | Loss: 0.336998
+  Epoch 1700 | Loss: 0.280137
+  Epoch 1750 | Loss: 0.257700
+  Epoch 1800 | Loss: 0.310946
+  Epoch 1850 | Loss: 0.340438
+  Epoch 1900 | Loss: 0.270784
+  Epoch 1950 | Loss: 0.289699
+  Epoch 2000 | Loss: 0.377665
+  Epoch 2050 | Loss: 0.279512
+  Epoch 2100 | Loss: 0.276140
+  Epoch 2150 | Loss: 0.306664
+  Epoch 2200 | Loss: 0.320582
+  Epoch 2250 | Loss: 0.199176
+  Epoch 2300 | Loss: 0.254540
+  Epoch 2350 | Loss: 0.363024
+  Epoch 2400 | Loss: 0.226890
+  Epoch 2450 | Loss: 0.276031
+  Epoch 2500 | Loss: 0.264544
+  Epoch 2550 | Loss: 0.311774
+  Epoch 2600 | Loss: 0.296569
+  Epoch 2650 | Loss: 0.260424
+  Epoch 2700 | Loss: 0.202696
+  Epoch 2750 | Loss: 0.273339
+  Epoch 2800 | Loss: 0.320153
+  Epoch 2850 | Loss: 0.266495
+  Epoch 2900 | Loss: 0.222031
+  Epoch 2950 | Loss: 0.263928
+  Epoch 3000 | Loss: 0.276232
+  Epoch 3050 | Loss: 0.264448
+  Epoch 3100 | Loss: 0.324879
+  Epoch 3150 | Loss: 0.401445
+  Epoch 3200 | Loss: 0.209891
+  Epoch 3250 | Loss: 0.299675
+  Epoch 3300 | Loss: 0.261890
+  Epoch 3350 | Loss: 0.276574
+  Epoch 3400 | Loss: 0.317581
+  Epoch 3450 | Loss: 0.318848
+  Epoch 3500 | Loss: 0.247475
+  Epoch 3550 | Loss: 0.276379
+  Epoch 3600 | Loss: 0.254307
+  Epoch 3650 | Loss: 0.280636
+  Epoch 3700 | Loss: 0.282100
+  Epoch 3750 | Loss: 0.216570
+  Epoch 3800 | Loss: 0.254686
+  Epoch 3850 | Loss: 0.364696
+  Epoch 3900 | Loss: 0.411010
+  Epoch 3950 | Loss: 0.223185
+  Epoch 4000 | Loss: 0.271249
+  Epoch 4050 | Loss: 0.413456
+  Epoch 4100 | Loss: 0.239546
+  Epoch 4150 | Loss: 0.253281
+  Epoch 4200 | Loss: 0.269038
+  Epoch 4250 | Loss: 0.385848
+  Epoch 4300 | Loss: 0.338983
+  Epoch 4350 | Loss: 0.347798
+  Epoch 4400 | Loss: 0.334943
+  Epoch 4450 | Loss: 0.337236
+  Epoch 4500 | Loss: 0.209495
+  Epoch 4550 | Loss: 0.374259
+  Epoch 4600 | Loss: 0.285961
+  Epoch 4650 | Loss: 0.232759
+  Epoch 4700 | Loss: 0.277724
+  Epoch 4750 | Loss: 0.285810
+  Epoch 4800 | Loss: 0.256947
+  Epoch 4850 | Loss: 0.293977
+  Epoch 4900 | Loss: 0.364721
+  Epoch 4950 | Loss: 0.237874
+  Epoch 5000 | Loss: 0.225835
+  Epoch 5050 | Loss: 0.183607
+  Epoch 5100 | Loss: 0.302363
+  Epoch 5150 | Loss: 0.235520
+  Epoch 5200 | Loss: 0.220730
+  Epoch 5250 | Loss: 0.216404
+  Epoch 5300 | Loss: 0.283537
+  Epoch 5350 | Loss: 0.240183
+  Epoch 5400 | Loss: 0.225597
+  Epoch 5450 | Loss: 0.277779
+  Epoch 5500 | Loss: 0.266606
+  Epoch 5550 | Loss: 0.300495
+  Epoch 5600 | Loss: 0.352510
+  Epoch 5650 | Loss: 0.296313
+  Epoch 5700 | Loss: 0.395762
+  Epoch 5750 | Loss: 0.287558
+  Epoch 5800 | Loss: 0.269486
+  Epoch 5850 | Loss: 0.276243
+  Epoch 5900 | Loss: 0.217175
+  Epoch 5950 | Loss: 0.224080
+  Epoch 6000 | Loss: 0.249942
+  Epoch 6050 | Loss: 0.300925
+  Epoch 6100 | Loss: 0.329462
+  Epoch 6150 | Loss: 0.258883
+  Epoch 6200 | Loss: 0.218591
+  Epoch 6250 | Loss: 0.218040
+  Epoch 6300 | Loss: 0.273591
+  Epoch 6350 | Loss: 0.297294
+  Epoch 6400 | Loss: 0.335222
+  Epoch 6450 | Loss: 0.251151
+  Epoch 6500 | Loss: 0.235117
+  Epoch 6550 | Loss: 0.159432
+  Epoch 6600 | Loss: 0.411015
+  Epoch 6650 | Loss: 0.243826
+  Epoch 6700 | Loss: 0.330610
+  Epoch 6750 | Loss: 0.308834
+  Epoch 6800 | Loss: 0.285763
+  Epoch 6850 | Loss: 0.284037
+  Epoch 6900 | Loss: 0.187272
+  Epoch 6950 | Loss: 0.228827
+  Epoch 7000 | Loss: 0.218900
+  Epoch 7050 | Loss: 0.306952
+  Epoch 7100 | Loss: 0.196029
+  Epoch 7150 | Loss: 0.400602
+  Epoch 7200 | Loss: 0.195344
+  Epoch 7250 | Loss: 0.202133
+  Epoch 7300 | Loss: 0.214944
+  Epoch 7350 | Loss: 0.255731
+  Epoch 7400 | Loss: 0.247244
+  Epoch 7450 | Loss: 0.242920
+  Epoch 7500 | Loss: 0.268413
+  Epoch 7550 | Loss: 0.286508
+  Epoch 7600 | Loss: 0.345577
+  Epoch 7650 | Loss: 0.171524
+  Epoch 7700 | Loss: 0.334132
+  Epoch 7750 | Loss: 0.212776
+  Epoch 7800 | Loss: 0.254152
+  Epoch 7850 | Loss: 0.217251
+  Epoch 7900 | Loss: 0.258435
+  Epoch 7950 | Loss: 0.243069
+  Epoch 8000 | Loss: 0.343999
+  Epoch 8050 | Loss: 0.192413
+  Epoch 8100 | Loss: 0.314413
+  Epoch 8150 | Loss: 0.291390
+  Epoch 8200 | Loss: 0.233905
+  Epoch 8250 | Loss: 0.209667
+  Epoch 8300 | Loss: 0.198453
+  Epoch 8350 | Loss: 0.234146
+  Epoch 8400 | Loss: 0.215489
+  Epoch 8450 | Loss: 0.222381
+  Epoch 8500 | Loss: 0.267905
+  Epoch 8550 | Loss: 0.227891
+  Epoch 8600 | Loss: 0.339104
+  Epoch 8650 | Loss: 0.193351
+  Epoch 8700 | Loss: 0.343443
+  Epoch 8750 | Loss: 0.265888
+  Epoch 8800 | Loss: 0.368753
+  Epoch 8850 | Loss: 0.234249
+  Epoch 8900 | Loss: 0.274077
+  Epoch 8950 | Loss: 0.318889
+  Epoch 9000 | Loss: 0.174573
+  Epoch 9050 | Loss: 0.244233
+  Epoch 9100 | Loss: 0.335865
+  Epoch 9150 | Loss: 0.243082
+  Epoch 9200 | Loss: 0.226211
+  Epoch 9250 | Loss: 0.191338
+  Epoch 9300 | Loss: 0.240021
+  Epoch 9350 | Loss: 0.227297
+  Epoch 9400 | Loss: 0.326872
+  Epoch 9450 | Loss: 0.287383
+  Epoch 9500 | Loss: 0.269808
+  Epoch 9550 | Loss: 0.297169
+  Epoch 9600 | Loss: 0.180275
+  Epoch 9650 | Loss: 0.262372
+  Epoch 9700 | Loss: 0.266238
+  Epoch 9750 | Loss: 0.223848
+  Epoch 9800 | Loss: 0.268349
+  Epoch 9850 | Loss: 0.257208
+  Epoch 9900 | Loss: 0.222040
+  Epoch 9950 | Loss: 0.290440
+  Epoch 10000 | Loss: 0.281510
+  Saved diffusion model: output/job_39423912/diffusion.pt
+
+[PHASE 3] Editing mood: "dark and mysterious"
+  Edit strength: 0.35
+[EDIT] Latent z0: torch.Size([1, 32, 8, 81])
+[EDIT] SDEdit from t=350 (19 steps), CFG scale=1.5
+[EDIT] Mood text: "dark and mysterious"
+  Saved edited audio: output/job_39423912/edited_dark_and_mysterious.wav
+[VIS] Saved: output/job_39423912/mood_edit_comparison.png
+
+============================================================
+ MOOD DIFFUSION PIPELINE COMPLETE
+============================================================
+  Original        : output/original.wav
+  Mood-edited     : output/job_39423912/edited_dark_and_mysterious.wav
+  Comparison plot : output/job_39423912/mood_edit_comparison.png
+
+  The melody (pitch structure) is preserved via ControlNet,
+  while the mood/texture changes based on your text prompt.
+[RUN] Done on Sat Aug 15 01:59:25 AM EDT 2026
+[RUN] Results saved to: output/job_39423912
