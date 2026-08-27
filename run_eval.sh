@@ -36,9 +36,11 @@ CKPT_DIR="output/job_39423912"
 DATA_ROOT="/orange/ufdatastudios/asherwheatle/DEAM_audio"
 CLAP_CKPT="music_audioset_epoch_15_esc_90.14.pt"
 
-# --- Make sure CLAP is installed and the checkpoint is present ---
+# --- Make sure CLAP (and its torchvision dep) are installed ---
 python -c "import laion_clap" 2>/dev/null || {
-    echo "[SETUP] Installing laion-clap..."
+    echo "[SETUP] Installing laion-clap + torchvision..."
+    # torchvision 0.22.0 matches torch 2.7.0/cu128; laion_clap imports it
+    uv pip install "torchvision==0.22.0" --index-url https://download.pytorch.org/whl/cu128
     uv pip install laion-clap
 }
 if [ ! -f "$CLAP_CKPT" ]; then
