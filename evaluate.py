@@ -45,12 +45,13 @@ from config import DiffusionConfig
 from autoencoder import LatentAutoencoder
 from dit import MoodDiT
 from melody import MelodyEncoder, MelodyExtractor
-from text_encoder import TextEncoder
+from text_encoder import ClapTextEncoder
 from diffusion import GaussianDiffusion
 from pipeline import (load_bigvgan, bigvgan_mel_spectrogram, FixedMelNormalizer,
                       pad_spectrogram)
 from inference import edit_mood
 from annotations import (load_annotations, mood_from_va, song_id_from_filename)
+from valence_probe import (train_probe_from_clip_files, MOOD_VALENCE_SIGN)
 
 
 # The five moods the model was trained on, expanded into caption-like prompts
@@ -146,7 +147,7 @@ class Clap:
 # Model loading (mirrors mood_diffusion.py edit mode)
 # ---------------------------------------------------------------------------
 def load_models(cfg: DiffusionConfig, ckpt_dir: str, sample_wav: np.ndarray,
-                bigvgan_model):
+                bigvgan_model, clap=None):
     device = cfg.device
 
     ae = LatentAutoencoder(cfg.ae_channels).to(device)
@@ -170,7 +171,12 @@ def load_models(cfg: DiffusionConfig, ckpt_dir: str, sample_wav: np.ndarray,
         n_blocks=cfg.n_dit_blocks, n_control_blocks=cfg.n_controlnet_blocks,
     ).to(device)
     melody_enc = MelodyEncoder(cfg.d_model, cfg.melody_top_k).to(device)
-    text_enc = TextEncoder(cfg.d_model, cfg.text_max_len).to(device)
+    # Reuse the already-loaded CLAP (its .model is the frozen text tower) so we
+    # don't load a second copy; fall back to loading one if none was passed.
+    text_enc = ClapTextEncoder(
+        cfg.d_model, clap_model=(clap.model if clap is not None else None),
+        clap_ckpt=cfg.clap_ckpt, n_tokens=cfg.text_n_tokens,
+        device=device).to(device)
 
     ckpt = torch.load(os.path.join(ckpt_dir, "diffusion.pt"),
                       map_location=device, weights_only=True)
@@ -239,11 +245,13 @@ def validate_clap(clap: Clap, files: list, va: dict, sr: int,
 # ---------------------------------------------------------------------------
 # Stage 2: edit N songs x 5 moods, score each edit
 # ---------------------------------------------------------------------------
-def evaluate_edits(cfg, clap, files, va, sr, models, out_csv):
+def evaluate_edits(cfg, clap, probe, files, va, sr, models, out_csv):
     ae, dit, melody_enc, text_enc, diffusion, lat_mean, lat_std = models
     fieldnames = ["song", "song_id", "gt_mood", "target_mood",
                   "clap_cos_original", "clap_cos_edited", "clap_gain",
                   "clap_pred_edited", "transfer_success", "chroma_sim",
+                  "valence_original", "valence_edited", "valence_shift",
+                  "valence_target_sign", "valence_correct_dir",
                   "edit_strength"]
     rows = []
     print(f"\n{'='*60}\n EDIT EVALUATION: {len(files)} songs x {len(MOODS)} "
@@ -257,6 +265,7 @@ def evaluate_edits(cfg, clap, files, va, sr, models, out_csv):
 
         orig_emb = clap.audio_embed(wav_orig, sr)
         orig_cos = clap.cos_to_moods(orig_emb)  # (5,)
+        v_orig = probe.predict(orig_emb)
 
         for target in MOODS:
             wav_edit = edit_mood(
@@ -268,6 +277,10 @@ def evaluate_edits(cfg, clap, files, va, sr, models, out_csv):
             edit_cos = clap.cos_to_moods(edit_emb)
             ti = MOODS.index(target)
             pred = MOODS[int(np.argmax(edit_cos))]
+
+            v_edit = probe.predict(edit_emb)
+            v_shift = v_edit - v_orig
+            desired = MOOD_VALENCE_SIGN[target]
             rows.append({
                 "song": os.path.basename(path), "song_id": sid, "gt_mood": gt,
                 "target_mood": target,
@@ -277,6 +290,12 @@ def evaluate_edits(cfg, clap, files, va, sr, models, out_csv):
                 "clap_pred_edited": pred,
                 "transfer_success": int(pred == target),
                 "chroma_sim": round(chroma_similarity(wav_orig, wav_edit, sr), 4),
+                "valence_original": round(float(v_orig), 4),
+                "valence_edited": round(float(v_edit), 4),
+                "valence_shift": round(float(v_shift), 4),
+                "valence_target_sign": desired,
+                # did valence move in the target's intended direction?
+                "valence_correct_dir": int(v_shift * desired > 0),
                 "edit_strength": cfg.edit_strength,
             })
         print(f"  {os.path.basename(path)} (gt={gt}) done")
@@ -288,12 +307,17 @@ def evaluate_edits(cfg, clap, files, va, sr, models, out_csv):
     return rows
 
 
-def summarize(rows, clap_acc, out_txt):
+def summarize(rows, clap_acc, probe, out_txt):
+    pm = probe.metrics
     lines = ["=" * 60, " EVALUATION SUMMARY", "=" * 60,
              f" CLAP validation top-1 accuracy : {clap_acc:.3f} "
-             f"(chance {1/len(MOODS):.3f})", ""]
+             f"(chance {1/len(MOODS):.3f})",
+             f" Valence probe held-out R^2     : {pm.get('heldout_r2', float('nan')):.3f} "
+             f"(pearson {pm.get('heldout_pearson', float('nan')):.3f}, "
+             f"n={int(pm.get('n_total', 0))})", ""]
     lines.append(f" {'target mood':24s} {'mean gain':>10s} "
-                 f"{'transfer%':>10s} {'chroma':>8s}")
+                 f"{'transfer%':>10s} {'chroma':>8s} {'val.shift':>10s} "
+                 f"{'val.dir%':>9s}")
     for m in MOODS:
         sub = [r for r in rows if r["target_mood"] == m]
         if not sub:
@@ -301,14 +325,25 @@ def summarize(rows, clap_acc, out_txt):
         gain = np.mean([r["clap_gain"] for r in sub])
         tr = 100 * np.mean([r["transfer_success"] for r in sub])
         ch = np.mean([r["chroma_sim"] for r in sub])
-        lines.append(f" {m:24s} {gain:>10.4f} {tr:>9.1f}% {ch:>8.3f}")
+        # signed shift toward the mood's intended valence direction
+        vshift = np.mean([r["valence_shift"] * r["valence_target_sign"]
+                          for r in sub])
+        vdir = 100 * np.mean([r["valence_correct_dir"] for r in sub])
+        lines.append(f" {m:24s} {gain:>10.4f} {tr:>9.1f}% {ch:>8.3f} "
+                     f"{vshift:>10.4f} {vdir:>8.1f}%")
+    overall_vshift = np.mean([r["valence_shift"] * r["valence_target_sign"]
+                              for r in rows])
     lines += ["",
-              f" Overall mean CLAP gain   : {np.mean([r['clap_gain'] for r in rows]):.4f}",
-              f" Overall transfer success : {100*np.mean([r['transfer_success'] for r in rows]):.1f}%",
-              f" Overall chroma preserved : {np.mean([r['chroma_sim'] for r in rows]):.3f}",
+              f" Overall mean CLAP gain     : {np.mean([r['clap_gain'] for r in rows]):.4f}",
+              f" Overall transfer success   : {100*np.mean([r['transfer_success'] for r in rows]):.1f}%",
+              f" Overall chroma preserved   : {np.mean([r['chroma_sim'] for r in rows]):.3f}",
+              f" Overall valence shift(dir) : {overall_vshift:.4f}",
+              f" Overall valence dir correct: {100*np.mean([r['valence_correct_dir'] for r in rows]):.1f}%",
               "",
               " Read: gain>0 and transfer high => mood moved toward the text.",
               " chroma near 1 => melody kept. You want BOTH high at once.",
+              " val.shift(dir)>0 & val.dir% high => valence moved the intended way;",
+              " trust these only if the probe's held-out R^2 above is well over 0.",
               "=" * 60]
     text = "\n".join(lines)
     print("\n" + text)
@@ -333,6 +368,9 @@ def main():
     p.add_argument("--n_songs", type=int, default=20, help="Songs to edit")
     p.add_argument("--n_val", type=int, default=100,
                    help="Songs for CLAP validation (cheap, no editing)")
+    p.add_argument("--n_probe", type=int, default=500,
+                   help="Annotated songs to fit the valence probe on "
+                        "(cheap: CLAP-embed only, no editing)")
     p.add_argument("--edit_strength", type=float, default=0.5)
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
@@ -359,15 +397,24 @@ def main():
                              cfg.clip_seconds,
                              os.path.join(args.ckpt_dir, "clap_validation.csv"))
 
+    # Stage 1b: fit the continuous valence probe on frozen CLAP embeddings
+    # (cheap — embedding only, no editing). Cached to the ckpt dir.
+    probe_files = pick_annotated_songs(args.audio_dir, va, args.n_probe)
+    probe = train_probe_from_clip_files(
+        clap, probe_files, va, sr, cfg.clip_start_seconds, cfg.clip_seconds,
+        load_clip, song_id_from_filename,
+        cache_path=os.path.join(args.ckpt_dir, "valence_probe.npz"))
+
     # Stage 2: load the model and evaluate edits
     edit_files = pick_annotated_songs(args.audio_dir, va, args.n_songs)
     sample = load_clip(edit_files[0], sr, cfg.clip_start_seconds, cfg.clip_seconds)
     print("[STEP] Loading mood-diffusion checkpoints...")
-    models = load_models(cfg, args.ckpt_dir, sample, _bigvgan)
+    models = load_models(cfg, args.ckpt_dir, sample, _bigvgan, clap=clap)
 
-    rows = evaluate_edits(cfg, clap, edit_files, va, sr, models,
+    rows = evaluate_edits(cfg, clap, probe, edit_files, va, sr, models,
                           os.path.join(args.ckpt_dir, "eval_edits.csv"))
-    summarize(rows, clap_acc, os.path.join(args.ckpt_dir, "eval_summary.txt"))
+    summarize(rows, clap_acc, probe,
+              os.path.join(args.ckpt_dir, "eval_summary.txt"))
 
 
 if __name__ == "__main__":

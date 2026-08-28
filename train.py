@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from config import DiffusionConfig
 from autoencoder import LatentAutoencoder
-from text_encoder import TextEncoder
+from text_encoder import ClapTextEncoder
 from dit import MoodDiT
 from melody import MelodyEncoder
 from diffusion import GaussianDiffusion
@@ -125,18 +125,21 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
     ).to(device)
 
     melody_enc = MelodyEncoder(d_model=cfg.d_model, top_k=cfg.melody_top_k).to(device)
-    text_enc = TextEncoder(d_model=cfg.d_model, max_len=cfg.text_max_len).to(device)
+    # Frozen CLAP text tower + trainable projection (Lever A). Only the
+    # projection is optimized; CLAP is frozen and off the training hot path.
+    text_enc = ClapTextEncoder(cfg.d_model, clap_ckpt=cfg.clap_ckpt,
+                               n_tokens=cfg.text_n_tokens, device=device).to(device)
     diffusion = GaussianDiffusion(cfg.num_train_timesteps, device)
 
     all_params = (list(dit.parameters()) +
                   list(melody_enc.parameters()) +
-                  list(text_enc.parameters()))
+                  list(text_enc.parameters()))     # projection only; CLAP frozen
     optimizer = optim.AdamW(all_params, lr=cfg.diff_lr)
 
-    tokens_all = torch.stack([
-        TextEncoder.tokenize(t, cfg.text_max_len) for t in mood_texts
-    ], dim=0)  # (N, text_max_len) on CPU
-    null_tokens = TextEncoder.tokenize("", cfg.text_max_len).to(device)
+    # Precompute each song's frozen CLAP text embedding once (there are only a
+    # handful of unique mood strings), plus the null embedding for CFG dropout.
+    clap_emb_all = text_enc.encode(mood_texts).cpu()          # (N, clap_dim)
+    null_clap_emb = text_enc.encode([""])[0].to(device)       # (clap_dim,)
 
     from collections import Counter
     print(f"\n{'='*60}")
@@ -163,10 +166,10 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
 
         mel_emb = melody_enc(melody_all[idx].to(device), W_lat)
 
-        tokens = tokens_all[idx].to(device)
+        clap_emb = clap_emb_all[idx].to(device)   # (B, clap_dim), a fresh copy
         drop = torch.rand(cfg.batch_size, device=device) < cfg.cfg_dropout
-        tokens[drop] = null_tokens
-        text_emb = text_enc(tokens)
+        clap_emb[drop] = null_clap_emb
+        text_emb = text_enc(clap_emb)
 
         v_pred = dit(z_t, t, text_emb, mel_emb)
         v_tgt = diffusion.v_target(z0, noise, t)

@@ -146,7 +146,7 @@ class MoodDiT(nn.Module):
         Args:
             z_noisy:    (B, C_lat, H_lat, W_lat) noisy latent
             timesteps:  (B,) diffusion timestep indices
-            text_emb:   (B, text_seq, d_model) from TextEncoder
+            text_emb:   (B, text_seq, d_model) from ClapTextEncoder
             melody_emb: (B, W_lat, d_model) from MelodyEncoder
         Returns:
             (B, C_lat, H_lat, W_lat) predicted v (velocity)

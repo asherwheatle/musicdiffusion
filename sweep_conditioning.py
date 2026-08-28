@@ -95,7 +95,7 @@ def main():
     sample = load_clip(files[0], sr, cfg.clip_start_seconds, cfg.clip_seconds)
     print("[STEP] Loading mood-diffusion checkpoints...")
     ae, dit, mel_enc, txt_enc, diff, lat_m, lat_s = load_models(
-        cfg, args.ckpt_dir, sample, bigvgan)
+        cfg, args.ckpt_dir, sample, bigvgan, clap=clap)
 
     # Preload each song's clip + original CLAP embedding once.
     songs = []

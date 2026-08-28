@@ -9,7 +9,7 @@ Full pipeline:
   1. Audio waveform -> Mel spectrogram (BigVGAN mel config)
   2. Mel -> 2D latent feature map (LatentAutoencoder encoder)
   3. Melody extraction from audio (Top-k CQT, paper section III-B)
-  4. User mood text -> text embedding (learned character-level encoder)
+  4. User mood text -> text embedding (frozen CLAP text tower + projection)
   5. Latent Diffusion (DiT + ControlNet) conditioned on text + melody
   6. Modified latent -> Mel (LatentAutoencoder decoder)
   7. Mel -> Output WAV (BigVGAN vocoder)
@@ -40,7 +40,7 @@ from config import DiffusionConfig
 from autoencoder import LatentAutoencoder
 from dit import MoodDiT
 from melody import MelodyEncoder, MelodyExtractor
-from text_encoder import TextEncoder
+from text_encoder import ClapTextEncoder
 from diffusion import GaussianDiffusion
 from train import train_autoencoder, train_diffusion
 from inference import edit_mood
@@ -248,7 +248,9 @@ def main():
             n_blocks=cfg.n_dit_blocks, n_control_blocks=cfg.n_controlnet_blocks,
         ).to(cfg.device)
         melody_enc = MelodyEncoder(cfg.d_model, cfg.melody_top_k).to(cfg.device)
-        text_enc = TextEncoder(cfg.d_model, cfg.text_max_len).to(cfg.device)
+        text_enc = ClapTextEncoder(cfg.d_model, clap_ckpt=cfg.clap_ckpt,
+                                   n_tokens=cfg.text_n_tokens,
+                                   device=cfg.device).to(cfg.device)
 
         diff_path = os.path.join(cfg.output_dir, "diffusion.pt")
         ckpt = torch.load(diff_path, map_location=cfg.device, weights_only=True)

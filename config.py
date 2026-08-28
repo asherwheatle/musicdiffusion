@@ -37,8 +37,10 @@ class DiffusionConfig:
     mlp_ratio = 4
     dropout = 0.0
 
-    # Text encoder
-    text_max_len = 128
+    # Text encoder (Lever A: frozen CLAP text tower + trainable projection)
+    text_max_len = 128           # legacy char encoder only; unused by CLAP
+    clap_ckpt = "music_audioset_epoch_15_esc_90.14.pt"
+    text_n_tokens = 4            # length of the projected conditioning sequence
 
     # Diffusion
     num_train_timesteps = 1000

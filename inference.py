@@ -8,7 +8,7 @@ from tqdm import tqdm
 from config import DiffusionConfig
 from autoencoder import LatentAutoencoder
 from melody import MelodyExtractor, MelodyEncoder
-from text_encoder import TextEncoder
+from text_encoder import ClapTextEncoder
 from dit import MoodDiT
 from diffusion import GaussianDiffusion
 from pipeline import bigvgan_mel_spectrogram, FixedMelNormalizer, pad_spectrogram, unpad_spectrogram
@@ -21,7 +21,7 @@ def edit_mood(
     ae: LatentAutoencoder,
     dit: MoodDiT,
     melody_enc: MelodyEncoder,
-    text_enc: TextEncoder,
+    text_enc: ClapTextEncoder,
     diffusion: GaussianDiffusion,
     bigvgan_model,
     cfg: DiffusionConfig,
@@ -68,10 +68,8 @@ def edit_mood(
     W_lat = z0.shape[-1]
     melody_emb = melody_enc(melody_tensor, W_lat)
 
-    tokens = TextEncoder.tokenize(mood_text, cfg.text_max_len).unsqueeze(0).to(device)
-    text_emb = text_enc(tokens)
-    null_tokens = TextEncoder.tokenize("", cfg.text_max_len).unsqueeze(0).to(device)
-    null_text_emb = text_enc(null_tokens)
+    text_emb = text_enc(text_enc.encode([mood_text]))
+    null_text_emb = text_enc(text_enc.encode([""]))
 
     # SDEdit: noise z0 up to t_start
     T = cfg.num_train_timesteps
