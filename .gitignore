@@ -221,3 +221,7 @@ data/
 output/
 bigvgan_v2_44khz_128band_512x/
 cache/
+
+logs/
+
+music_audioset_epoch_15_esc_90.14.pt
