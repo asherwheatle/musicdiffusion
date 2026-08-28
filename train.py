@@ -23,7 +23,7 @@ def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
     Train the latent autoencoder on a batch of normalized mel spectrograms.
 
     Args:
-        mel_batch: (N, 1, n_mels, T) normalized mels, one per song (CPU)
+        mel_batch: (N, 1, n_mels, T) normalized mels, one per clip (CPU)
 
     Preserves spatial structure (no flatten bottleneck) so the latent
     is suitable for 2D diffusion.
@@ -85,9 +85,9 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
     Train the DiT + ControlNet diffusion model in the autoencoder's latent space.
 
     Args:
-        mel_batch: (N, 1, n_mels, T) normalized mels, one per song (CPU)
+        mel_batch: (N, 1, n_mels, T) normalized mels, one per clip (CPU)
         melody_all: (N, top_k, T_cqt) precomputed melody pitch indices (CPU)
-        mood_texts: list of N mood strings, one per song
+        mood_texts: list of N mood strings, one per clip
 
     Each step:
       1. Sample a minibatch of songs' latents z0
@@ -141,13 +141,24 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
     clap_emb_all = text_enc.encode(mood_texts).cpu()          # (N, clap_dim)
     null_clap_emb = text_enc.encode([""])[0].to(device)       # (clap_dim,)
 
+    # Mood-balanced sampling: DEAM is heavily skewed (lots of happy/
+    # energetic, few sad/dark clips), so uniform sampling would starve
+    # the rare moods of gradient updates and bias the conditioning.
+    # Weight each clip by the inverse of its mood's frequency so every
+    # mood contributes ~equally to training batches.
     from collections import Counter
+    mood_counts = Counter(mood_texts)
+    sample_weights = torch.tensor(
+        [1.0 / mood_counts[t] for t in mood_texts], dtype=torch.double)
+
     print(f"\n{'='*60}")
     print(f" Training Diffusion Model ({cfg.diff_epochs} steps, "
-          f"{n_songs} songs, batch {cfg.batch_size})")
+          f"{n_songs} clips, batch {cfg.batch_size})")
     print(f" DiT blocks: {cfg.n_dit_blocks} ({cfg.n_controlnet_blocks} w/ ControlNet)")
     print(f" d_model: {cfg.d_model}  heads: {cfg.n_heads}")
-    print(f" Mood distribution: {dict(Counter(mood_texts))}")
+    print(f" Mood distribution (raw): {dict(mood_counts)}")
+    print(f" Sampling: balanced — each of the {len(mood_counts)} moods "
+          f"~{1.0 / len(mood_counts):.0%} of every batch")
     print(f"{'='*60}")
 
     dit.train()
@@ -157,7 +168,8 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
     for epoch in tqdm(range(1, cfg.diff_epochs + 1), desc="Diffusion"):
         optimizer.zero_grad()
 
-        idx = torch.randint(0, n_songs, (cfg.batch_size,))
+        idx = torch.multinomial(sample_weights, cfg.batch_size,
+                                replacement=True)
         z0 = z0_all[idx].to(device)
         t = torch.randint(0, cfg.num_train_timesteps,
                           (cfg.batch_size,), device=device)

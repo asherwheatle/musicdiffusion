@@ -5,10 +5,13 @@ import torch
 
 class DiffusionConfig:
     sample_rate = 44100
-    clip_seconds = 15
+    clip_seconds = 5
     # Training clips start 15 s in: DEAM's dynamic annotations only cover
     # 15 s onward, so this aligns the audio with its mood label
     clip_start_seconds = 15
+    # 6 x 5 s covers 15-45 s, the whole annotated region of a DEAM
+    # excerpt; each clip gets the mood of its own 5 s window
+    clips_per_song = 6
     n_mels = 128
     device = "cuda" if torch.cuda.is_available() else "cpu"
 

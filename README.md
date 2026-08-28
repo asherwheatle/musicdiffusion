@@ -67,8 +67,9 @@ config.py           DiffusionConfig — all hyperparameters in one place (epochs
 annotations.py      DEAM valence/arousal CSV loading (dynamic + static formats)
                     and the (valence, arousal) -> mood text mapping
 
-dataset.py          build_dataset — loads DEAM clips, labels them from the
-                    annotations, extracts melodies, caches to cache/*.npz
+dataset.py          build_dataset — cuts each DEAM song into 5 s clips, labels
+                    each clip from its own annotation window, extracts melodies,
+                    shuffles, caches to cache/*.npz
 
 autoencoder.py      LatentEncoder / LatentDecoder / LatentAutoencoder — convolutional
                     autoencoder that compresses mel spectrograms into a 2D spatial latent
@@ -92,7 +93,9 @@ text_encoder.py     TextEncoder — lightweight character-level transformer enco
 
 train.py            train_autoencoder() — MSE training loop for the latent AE
                     train_diffusion() — v-prediction training loop for DiT+ControlNet
-                    with CFG dropout on text conditioning
+                    with CFG dropout on text conditioning and mood-balanced batch
+                    sampling (inverse-frequency weights, so rare moods like
+                    sad/dark get equal training signal)
 
 inference.py        edit_mood() — SDEdit inference: encode -> add noise to t_start ->
                     DDIM denoise with CFG (text only, melody unguided) -> decode -> BigVGAN
@@ -128,4 +131,5 @@ All outputs go to `output/` by default:
 | `cfg_scale` | 7.0 | Higher = stronger text adherence, less fidelity |
 | `d_model` | 256 | DiT model width |
 | `n_dit_blocks` | 8 | DiT depth |
-| `clip_seconds` | 15 | Audio clip length fed into the pipeline |
+| `clip_seconds` | 5 | Audio clip length fed into the pipeline |
+| `clips_per_song` | 6 | 5 s clips cut from each song (covers the 15–45 s annotated region) |

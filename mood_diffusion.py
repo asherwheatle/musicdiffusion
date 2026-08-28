@@ -162,6 +162,7 @@ def main():
             cfg.clip_seconds, annotations_dir=cfg.annotations_dir,
             clip_start_seconds=cfg.clip_start_seconds,
             melody_extractor=extractor, cache_dir=cfg.cache_dir,
+            clips_per_song=cfg.clips_per_song,
         )
 
     # =========================================================================

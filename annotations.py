@@ -53,24 +53,20 @@ def _find_file(annotations_dir: str, filename: str):
     return matches[0] if matches else None
 
 
-def _load_dynamic_csv(path: str, window_start_s: float,
-                      window_end_s: float) -> dict:
+def _read_dynamic_csv(path: str):
+    """Read one dynamic annotation CSV in full.
+
+    Returns:
+        sample_ms: (T,) sample times in milliseconds
+        series: {song_id: (T,) values, NaN-padded to the header length}
     """
-    Read one dynamic annotation CSV and return {song_id: mean value over
-    the [window_start_s, window_end_s) clip window}. Falls back to the
-    whole-song mean when the window has no annotated samples (e.g. clips
-    taken from the unannotated first 15 s).
-    """
-    values = {}
+    series = {}
     with open(path, newline="") as f:
         reader = csv.reader(f)
         header = next(reader)
         sample_ms = np.array([
             int(col.split("_")[1].replace("ms", "")) for col in header[1:]
         ])
-        in_window = ((sample_ms >= window_start_s * 1000) &
-                     (sample_ms < window_end_s * 1000))
-
         for row in reader:
             if not row or not row[0].strip():
                 continue
@@ -84,12 +80,22 @@ def _load_dynamic_csv(path: str, window_start_s: float,
                               constant_values=np.nan)
             else:
                 vals = vals[:len(sample_ms)]
-            windowed = vals[in_window]
-            if np.isfinite(windowed).any():
-                values[song_id] = float(np.nanmean(windowed))
-            elif np.isfinite(vals).any():
-                values[song_id] = float(np.nanmean(vals))
-    return values
+            series[song_id] = vals
+    return sample_ms, series
+
+
+def _window_mean(sample_ms: np.ndarray, vals: np.ndarray,
+                 start_s: float, end_s: float):
+    """Mean of vals over [start_s, end_s); falls back to the whole-song
+    mean when the window has no annotated samples (e.g. clips taken from
+    the unannotated first 15 s). None if the song has no data at all."""
+    windowed = vals[(sample_ms >= start_s * 1000) &
+                    (sample_ms < end_s * 1000)]
+    if np.isfinite(windowed).any():
+        return float(np.nanmean(windowed))
+    if np.isfinite(vals).any():
+        return float(np.nanmean(vals))
+    return None
 
 
 def _load_static_csv(paths: list) -> dict:
@@ -109,30 +115,43 @@ def _load_static_csv(paths: list) -> dict:
     return va
 
 
-def load_annotations(annotations_dir: str, clip_start_seconds: float = 15,
-                     clip_seconds: float = 15) -> dict:
+def load_annotation_windows(annotations_dir: str, windows: list) -> dict:
     """
-    Load DEAM annotations from anywhere under annotations_dir.
+    Load DEAM annotations from anywhere under annotations_dir, averaged
+    per clip window.
+
+    Args:
+        windows: list of (start_s, end_s) clip windows.
 
     Returns:
-        {song_id: (valence, arousal)} with both values in [-1, 1],
-        averaged over the training clip window when dynamic annotations
-        are available.
+        {song_id: [(valence, arousal), ...]} with one pair per window,
+        both values in [-1, 1]. With dynamic annotations each window gets
+        its own mean; with the static fallback every window shares the
+        song-level value.
 
     Raises FileNotFoundError if no known annotation files are present.
     """
-    window = (clip_start_seconds, clip_start_seconds + clip_seconds)
-
     valence_path = _find_file(annotations_dir, "valence.csv")
     arousal_path = _find_file(annotations_dir, "arousal.csv")
     if valence_path and arousal_path:
         print(f"[ANNOT] Dynamic annotations: {valence_path}")
-        valence = _load_dynamic_csv(valence_path, *window)
-        arousal = _load_dynamic_csv(arousal_path, *window)
-        common = valence.keys() & arousal.keys()
-        va = {sid: (valence[sid], arousal[sid]) for sid in common}
+        v_ms, v_series = _read_dynamic_csv(valence_path)
+        a_ms, a_series = _read_dynamic_csv(arousal_path)
+        va = {}
+        for sid in v_series.keys() & a_series.keys():
+            pairs = []
+            for start_s, end_s in windows:
+                v = _window_mean(v_ms, v_series[sid], start_s, end_s)
+                a = _window_mean(a_ms, a_series[sid], start_s, end_s)
+                if v is None or a is None:
+                    pairs = None
+                    break
+                pairs.append((v, a))
+            if pairs is not None:
+                va[sid] = pairs
         print(f"[ANNOT] {len(va)} songs with valence+arousal "
-              f"(window {window[0]:.0f}-{window[1]:.0f}s)")
+              f"({len(windows)} windows, "
+              f"{windows[0][0]:.0f}-{windows[-1][1]:.0f}s)")
         return va
 
     static_paths = glob.glob(os.path.join(
@@ -140,14 +159,24 @@ def load_annotations(annotations_dir: str, clip_start_seconds: float = 15,
         recursive=True)
     if static_paths:
         print(f"[ANNOT] Static annotations: {static_paths}")
-        va = _load_static_csv(static_paths)
-        print(f"[ANNOT] {len(va)} songs with valence+arousal")
+        static = _load_static_csv(static_paths)
+        va = {sid: [pair] * len(windows) for sid, pair in static.items()}
+        print(f"[ANNOT] {len(va)} songs with valence+arousal "
+              f"(song-level, repeated per window)")
         return va
 
     raise FileNotFoundError(
         f"No DEAM annotations found under {annotations_dir}. Expected "
         f"valence.csv + arousal.csv (dynamic) or "
         f"static_annotations_averaged*.csv (song-level).")
+
+
+def load_annotations(annotations_dir: str, clip_start_seconds: float = 15,
+                     clip_seconds: float = 15) -> dict:
+    """Single-window convenience wrapper: {song_id: (valence, arousal)}."""
+    window = (clip_start_seconds, clip_start_seconds + clip_seconds)
+    va = load_annotation_windows(annotations_dir, [window])
+    return {sid: pairs[0] for sid, pairs in va.items()}
 
 
 def song_id_from_filename(filename: str):
