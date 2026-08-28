@@ -25,6 +25,10 @@ dependencies = [
 
     # HuggingFace — needed internally by bigvgan.py from_pretrained()
     "huggingface_hub>=0.23,<0.25",
+
+    # CLAP text tower for text conditioning (Lever A) + evaluation.
+    # Frozen; provides get_text_embedding for the ClapTextEncoder.
+    "laion-clap>=1.1.6",
 ]
 
 [build-system]
