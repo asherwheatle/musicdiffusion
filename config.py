@@ -13,6 +13,17 @@ class DiffusionConfig:
     # excerpt; each clip gets the mood of its own 5 s window
     clips_per_song = 6
     n_mels = 128
+
+    # Mood balancing via waveform augmentation (see augment.py). DEAM has
+    # far fewer dark clips than happy ones; we manufacture extra dark clips
+    # by pitch-shifting / time-shifting / adding noise to the real ones.
+    augment_moods = ("dark and mysterious",)  # empty tuple disables it
+    augment_target = None        # target clips/mood; None = match largest mood
+    max_aug_per_clip = 12        # ceiling on variants per real clip
+    aug_max_semitones = 2.0      # pitch shift range (+/-)
+    aug_max_shift_frac = 0.2     # time shift range as fraction of clip
+    aug_snr_db_range = (20.0, 35.0)  # gaussian-noise SNR range
+    augment_seed = 0
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Data
