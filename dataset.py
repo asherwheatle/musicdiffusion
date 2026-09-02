@@ -28,7 +28,7 @@ from tqdm import tqdm
 from pipeline import bigvgan_mel_spectrogram, FixedMelNormalizer
 from annotations import (load_annotation_windows, mood_from_va,
                          song_id_from_filename, MOOD_QUADRANTS)
-from augment import augment_waveform, plan_augmentation
+from augment import augment_waveform, plan_augmentation, variants_for_clip
 
 
 def _heuristic_song_features(wav: np.ndarray, sr: int):
@@ -210,7 +210,7 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
         print(f"[AUG] Balancing to ~{aug_target} clips/mood:")
         for m in augment_moods:
             print(f"[AUG]   {m}: {pre_counts.get(m, 0)} real x "
-                  f"{aug_plan[m]} variants each")
+                  f"~{aug_plan[m]:.2f} variants/clip")
 
     def _extract(wav_arr):
         """Mel-normalize + melody-extract one waveform, appending to lists."""
@@ -242,8 +242,12 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
                 mood = None
             names.append(f"{base}#{k}")
 
-            # Manufacture extra clips for under-represented moods
-            for j in range(aug_plan.get(mood, 0)):
+            # Manufacture extra clips for under-represented moods.
+            # Stochastic rounding of the fractional variant count keeps the
+            # per-mood total on target instead of over/undershooting.
+            n_aug = (variants_for_clip(aug_plan[mood], aug_rng)
+                     if mood in aug_plan else 0)
+            for j in range(n_aug):
                 aug = augment_waveform(
                     wav, sr, aug_rng, max_semitones=aug_max_semitones,
                     max_shift_frac=aug_max_shift_frac,

@@ -17,7 +17,14 @@ class DiffusionConfig:
     # Mood balancing via waveform augmentation (see augment.py). DEAM has
     # far fewer dark clips than happy ones; we manufacture extra dark clips
     # by pitch-shifting / time-shifting / adding noise to the real ones.
-    augment_moods = ("dark and mysterious",)  # empty tuple disables it
+    # Every mood except the majority "happy and uplifting" is boosted to
+    # parity with it (~5.8k clips each); empty tuple disables augmentation.
+    augment_moods = (
+        "dark and mysterious",
+        "sad and melancholic",
+        "energetic and powerful",
+        "calm and peaceful",
+    )
     augment_target = None        # target clips/mood; None = match largest mood
     max_aug_per_clip = 12        # ceiling on variants per real clip
     aug_max_semitones = 2.0      # pitch shift range (+/-)

@@ -90,6 +90,11 @@ def plan_augmentation(counts: dict, moods_to_aug, target=None,
                       cap=None) -> tuple:
     """Decide how many augmented variants each clip of a mood needs.
 
+    Returns a *fractional* variants-per-clip figure. Because a clip can
+    only get a whole number of variants, the caller applies stochastic
+    rounding (see `variants_for_clip`) so the realized total lands on the
+    target instead of over/undershooting by a whole multiplier.
+
     Args:
         counts: {mood: n_clips} in the (un-augmented) dataset.
         moods_to_aug: iterable of moods to boost.
@@ -99,7 +104,7 @@ def plan_augmentation(counts: dict, moods_to_aug, target=None,
              small pool of source songs is reused.
 
     Returns:
-        (plan, target) where plan = {mood: variants_per_existing_clip}.
+        (plan, target) where plan = {mood: mean_variants_per_existing_clip}.
     """
     if target is None:
         target = max(counts.values()) if counts else 0
@@ -107,13 +112,26 @@ def plan_augmentation(counts: dict, moods_to_aug, target=None,
     for mood in moods_to_aug:
         cur = counts.get(mood, 0)
         if cur <= 0 or cur >= target:
-            plan[mood] = 0
+            plan[mood] = 0.0
             continue
-        n = round(target / cur) - 1          # extra copies per real clip
+        extra = target / cur - 1.0           # avg extra copies per real clip
         if cap is not None:
-            n = min(n, cap)
-        plan[mood] = max(0, n)
+            extra = min(extra, float(cap))
+        plan[mood] = max(0.0, extra)
     return plan, target
+
+
+def variants_for_clip(mean_variants: float,
+                      rng: np.random.Generator) -> int:
+    """Stochastically round a fractional variants-per-clip to an integer.
+
+    E.g. mean_variants=2.4 yields 2 for ~60% of clips and 3 for ~40%, so
+    the mood's clips average 2.4 extra variants and the total hits target.
+    """
+    base = int(mean_variants)
+    if rng.random() < mean_variants - base:
+        base += 1
+    return base
 
 
 def _demo():
@@ -162,12 +180,11 @@ def _demo():
     print(f"\nBalancing target: {target} clips/mood")
     for m in moods:
         cur = counts.get(m, 0)
-        n = plan[m]
-        after = cur * (1 + n)
-        capped = " (CAP hit)" if args.target is None and after < target \
-            else ""
-        print(f"  {m}: {cur} real x {n} variants "
-              f"-> +{cur * n} augmented = {after} total{capped}")
+        extra = plan[m]
+        after = round(cur * (1 + extra))
+        capped = " (CAP-limited)" if extra >= args.cap else ""
+        print(f"  {m}: {cur} real x ~{extra:.2f} variants/clip "
+              f"-> +{round(cur * extra)} augmented = ~{after} total{capped}")
 
     if args.demo_audio:
         try:
