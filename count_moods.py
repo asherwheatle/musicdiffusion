@@ -28,10 +28,19 @@ from annotations import (load_annotation_windows, mood_from_va,
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--audio_dir", type=str, default=None,
+    # On HiPerGator the DEAM download lives under $DATA_ROOT (see the job
+    # scripts); locally it's under data/. Honour DATA_ROOT if set.
+    data_root = os.environ.get(
+        "DATA_ROOT",
+        "/orange/ufdatastudios/asherwheatle/DEAM_audio")
+    default_annot = (os.path.join(data_root, "DEAM_Annotations")
+                     if os.path.isdir(data_root)
+                     else os.path.join("data", "DEAM_Annotations"))
+    default_audio = (os.path.join(data_root, "MEMD_audio")
+                     if os.path.isdir(data_root) else None)
+    ap.add_argument("--audio_dir", type=str, default=default_audio,
                     help="if given, restrict to songs whose .mp3 exists here")
-    ap.add_argument("--annotations_dir", type=str,
-                    default=os.path.join("data", "DEAM_Annotations"))
+    ap.add_argument("--annotations_dir", type=str, default=default_annot)
     ap.add_argument("--clips_per_song", type=int, default=6)
     ap.add_argument("--clip_seconds", type=float, default=5)
     ap.add_argument("--clip_start_seconds", type=float, default=15)
