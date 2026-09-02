@@ -162,6 +162,14 @@ def main():
             cfg.clip_seconds, annotations_dir=cfg.annotations_dir,
             clip_start_seconds=cfg.clip_start_seconds,
             melody_extractor=extractor, cache_dir=cfg.cache_dir,
+            clips_per_song=cfg.clips_per_song,
+            augment_moods=cfg.augment_moods,
+            augment_target=cfg.augment_target,
+            max_aug_per_clip=cfg.max_aug_per_clip,
+            aug_max_semitones=cfg.aug_max_semitones,
+            aug_max_shift_frac=cfg.aug_max_shift_frac,
+            aug_snr_db_range=cfg.aug_snr_db_range,
+            augment_seed=cfg.augment_seed,
         )
 
     # =========================================================================
