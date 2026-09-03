@@ -12,10 +12,12 @@
 #SBATCH --partition=hpg-turin
 #SBATCH --account=ufdatastudios
 #SBATCH --qos=ufdatastudios
+# Single-GPU training. Extra CPUs feed the pinned-memory DataLoader workers
+# (num_workers in config.py) plus the pin_memory thread.
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=6
-#SBATCH --gpus=2
+#SBATCH --cpus-per-task=8
+#SBATCH --gpus=1
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00
 #SBATCH --mail-user=asherwheatle@ufl.edu
@@ -96,7 +98,7 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 DATA_ROOT="/orange/ufdatastudios/asherwheatle/DEAM_audio"
 
 # Run training under its own error guard so we can report the REAL outcome.
-# Without this, a killed/crashed python still fell through to "[RUN] Done"
+# Without this, a killed/crashed run still fell through to "[RUN] Done"
 # and the job showed up as COMPLETED even with no saved model.
 set +e
 python mood_diffusion.py \

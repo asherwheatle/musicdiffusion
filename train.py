@@ -1,7 +1,9 @@
 """Training loops for the latent autoencoder and diffusion model.
 
-Data tensors (mels, latents, melodies) stay on CPU so the full ~1800-song
-DEAM set fits in memory; only the active minibatch is moved to the GPU.
+Data tensors (mels, latents, melodies) stay on CPU so the full DEAM set fits
+in memory; only the active minibatch is moved to the GPU. Batches are served
+through a pinned-memory DataLoader and copied with non_blocking=True so the
+host->device transfer overlaps compute instead of stalling each step.
 """
 
 import os
@@ -9,6 +11,7 @@ import os
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
 
 from config import DiffusionConfig
@@ -63,9 +66,21 @@ def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
         print(f"[RESUME] Autoencoder resumed from epoch {ck['epoch']} "
               f"-> continuing at {start_epoch} ({ckpt_path})")
 
+    # DataLoader with pinned memory so H2D copies overlap compute and kill the
+    # per-batch copy stall; workers prefetch/collate the next batch off the
+    # training thread.
+    dataset = TensorDataset(mel_padded)
+    num_workers = getattr(cfg, "num_workers", 2)
+    loader = DataLoader(
+        dataset, batch_size=cfg.batch_size, shuffle=True,
+        num_workers=num_workers, pin_memory=True, drop_last=True,
+        persistent_workers=(num_workers > 0),
+    )
+
     print(f"\n{'='*60}")
     print(f" Training Latent Autoencoder ({cfg.ae_epochs} epochs)")
     print(f" Input: {tuple(mel_padded.shape)} ({n_songs} songs)  Device: {device}")
+    print(f" Batch size: {cfg.batch_size}")
     print(f"{'='*60}")
 
     ckpt_interval = getattr(cfg, "ae_ckpt_interval", cfg.ae_epochs)
@@ -73,10 +88,9 @@ def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
     ae.train()
     for epoch in tqdm(range(start_epoch, cfg.ae_epochs + 1), desc="Autoencoder",
                       initial=start_epoch - 1, total=cfg.ae_epochs):
-        perm = torch.randperm(n_songs)
         epoch_loss, n_batches = 0.0, 0
-        for i in range(0, n_songs, cfg.batch_size):
-            batch = mel_padded[perm[i:i + cfg.batch_size]].to(device)
+        for (batch,) in loader:
+            batch = batch.to(device, non_blocking=True)
             optimizer.zero_grad()
             recon, z = ae(batch)
             if recon.shape != batch.shape:
@@ -89,7 +103,7 @@ def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
             n_batches += 1
 
         if epoch % cfg.log_interval == 0 or epoch == 1:
-            tqdm.write(f"  Epoch {epoch:4d} | MSE: {epoch_loss / n_batches:.6f}")
+            tqdm.write(f"  Epoch {epoch:4d} | MSE: {epoch_loss / max(n_batches, 1):.6f}")
 
         if epoch % ckpt_interval == 0 or epoch == cfg.ae_epochs:
             # Resumable checkpoint (model + optimizer + epoch) ...
@@ -144,8 +158,9 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
 
     ae.eval()
     z0_all = _encode_latents(ae, mel_padded, device)
+    del mel_padded   # free the padded mel copy; only latents are needed now
     # Standardize latents so the diffusion's unit-variance noise assumption
-    # holds (the encoder's GroupNorm+SiLU output is skewed, std != 1)
+    # holds (the encoder's GroupNorm+SiLU output is skewed, std != 1).
     latent_mean = z0_all.mean()
     latent_std = z0_all.std()
     z0_all = (z0_all - latent_mean) / latent_std
@@ -168,6 +183,11 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
                                n_tokens=cfg.text_n_tokens, device=device).to(device)
     diffusion = GaussianDiffusion(cfg.num_train_timesteps, device)
 
+    # Precompute each song's frozen CLAP text embedding once (there are only a
+    # handful of unique mood strings), plus the null embedding for CFG dropout.
+    clap_emb_all = text_enc.encode(mood_texts).cpu()          # (N, clap_dim)
+    null_clap_emb = text_enc.encode([""])[0].to(device)       # (clap_dim,)
+
     all_params = (list(dit.parameters()) +
                   list(melody_enc.parameters()) +
                   list(text_enc.parameters()))     # projection only; CLAP frozen
@@ -187,11 +207,6 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
         start_epoch = ck["epoch"] + 1
         print(f"[RESUME] Diffusion resumed from step {ck['epoch']} "
               f"-> continuing at {start_epoch} ({ckpt_path})")
-
-    # Precompute each song's frozen CLAP text embedding once (there are only a
-    # handful of unique mood strings), plus the null embedding for CFG dropout.
-    clap_emb_all = text_enc.encode(mood_texts).cpu()          # (N, clap_dim)
-    null_clap_emb = text_enc.encode([""])[0].to(device)       # (clap_dim,)
 
     # Mood-balanced sampling: DEAM is heavily skewed (lots of happy/
     # energetic, few sad/dark clips), so uniform sampling would starve
@@ -239,13 +254,13 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
 
         idx = torch.multinomial(sample_weights, cfg.batch_size,
                                 replacement=True)
-        z0 = z0_all[idx].to(device)
+        z0 = z0_all[idx].to(device, non_blocking=True)
         t = torch.randint(0, cfg.num_train_timesteps,
                           (cfg.batch_size,), device=device)
         noise = torch.randn_like(z0)
         z_t = diffusion.q_sample(z0, t, noise)
 
-        mel_emb = melody_enc(melody_all[idx].to(device), W_lat)
+        mel_emb = melody_enc(melody_all[idx].to(device, non_blocking=True), W_lat)
 
         clap_emb = clap_emb_all[idx].to(device)   # (B, clap_dim), a fresh copy
         drop = torch.rand(cfg.batch_size, device=device) < cfg.cfg_dropout

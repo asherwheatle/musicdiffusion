@@ -69,7 +69,10 @@ class DiffusionConfig:
 
     # Training
     n_train_songs = None      # None = entire annotated dataset (~1800 songs)
-    batch_size = 16
+    # Raised from 16: the old value badly underfilled a modern GPU, leaving it
+    # copy-stalled rather than compute-bound.
+    batch_size = 64
+    num_workers = 4           # DataLoader workers for the autoencoder loop
     diff_lr = 1e-4
     diff_epochs = 10000
     cfg_scale = 1.5
