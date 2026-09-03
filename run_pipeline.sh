@@ -17,7 +17,7 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --gpus=2
 #SBATCH --mem=64G
-#SBATCH --time=08:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mail-user=asherwheatle@ufl.edu
 #SBATCH --mail-type=ALL
 
