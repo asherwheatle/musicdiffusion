@@ -4,6 +4,8 @@ Data tensors (mels, latents, melodies) stay on CPU so the full ~1800-song
 DEAM set fits in memory; only the active minibatch is moved to the GPU.
 """
 
+import os
+
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -16,6 +18,15 @@ from dit import MoodDiT
 from melody import MelodyEncoder
 from diffusion import GaussianDiffusion
 from pipeline import pad_spectrogram
+
+
+def _atomic_save(obj, path: str):
+    """Write to a temp file then rename, so an eviction mid-write can never
+    leave a truncated (unloadable) checkpoint at `path`."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    torch.save(obj, tmp)
+    os.replace(tmp, path)
 
 
 def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
@@ -39,13 +50,29 @@ def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
     ae = LatentAutoencoder(cfg.ae_channels).to(device)
     optimizer = optim.Adam(ae.parameters(), lr=cfg.ae_lr)
 
+    # Resume from an interrupted run if a checkpoint is present, so an
+    # eviction doesn't cost every completed epoch.
+    ckpt_path = os.path.join(cfg.output_dir, "autoencoder_ckpt.pt")
+    start_epoch = 1
+    if getattr(cfg, "resume", True) and os.path.exists(ckpt_path):
+        ck = torch.load(ckpt_path, map_location=device)
+        ae.load_state_dict(ck["model"])
+        optimizer.load_state_dict(ck["optimizer"])
+        start_epoch = ck["epoch"] + 1
+        orig_hw = ck.get("orig_hw", orig_hw)
+        print(f"[RESUME] Autoencoder resumed from epoch {ck['epoch']} "
+              f"-> continuing at {start_epoch} ({ckpt_path})")
+
     print(f"\n{'='*60}")
     print(f" Training Latent Autoencoder ({cfg.ae_epochs} epochs)")
     print(f" Input: {tuple(mel_padded.shape)} ({n_songs} songs)  Device: {device}")
     print(f"{'='*60}")
 
+    ckpt_interval = getattr(cfg, "ae_ckpt_interval", cfg.ae_epochs)
+
     ae.train()
-    for epoch in tqdm(range(1, cfg.ae_epochs + 1), desc="Autoencoder"):
+    for epoch in tqdm(range(start_epoch, cfg.ae_epochs + 1), desc="Autoencoder",
+                      initial=start_epoch - 1, total=cfg.ae_epochs):
         perm = torch.randperm(n_songs)
         epoch_loss, n_batches = 0.0, 0
         for i in range(0, n_songs, cfg.batch_size):
@@ -63,6 +90,16 @@ def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
 
         if epoch % cfg.log_interval == 0 or epoch == 1:
             tqdm.write(f"  Epoch {epoch:4d} | MSE: {epoch_loss / n_batches:.6f}")
+
+        if epoch % ckpt_interval == 0 or epoch == cfg.ae_epochs:
+            # Resumable checkpoint (model + optimizer + epoch) ...
+            _atomic_save({"model": ae.state_dict(),
+                          "optimizer": optimizer.state_dict(),
+                          "epoch": epoch, "orig_hw": orig_hw}, ckpt_path)
+            # ... plus the inference-ready copy the rest of the code loads,
+            # so even an interrupted run leaves a usable (if under-trained) AE.
+            _atomic_save(ae.state_dict(),
+                         os.path.join(cfg.output_dir, "autoencoder.pt"))
 
     ae.eval()
     return ae, orig_hw
@@ -136,6 +173,21 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
                   list(text_enc.parameters()))     # projection only; CLAP frozen
     optimizer = optim.AdamW(all_params, lr=cfg.diff_lr)
 
+    # Resume from an interrupted run. latent_mean/std are recomputed above
+    # (deterministic given the same AE + data), so the resumed run stays
+    # consistent with the checkpoint's normalization.
+    ckpt_path = os.path.join(cfg.output_dir, "diffusion_ckpt.pt")
+    start_epoch = 1
+    if getattr(cfg, "resume", True) and os.path.exists(ckpt_path):
+        ck = torch.load(ckpt_path, map_location=device)
+        dit.load_state_dict(ck["dit"])
+        melody_enc.load_state_dict(ck["melody_enc"])
+        text_enc.load_state_dict(ck["text_enc"])
+        optimizer.load_state_dict(ck["optimizer"])
+        start_epoch = ck["epoch"] + 1
+        print(f"[RESUME] Diffusion resumed from step {ck['epoch']} "
+              f"-> continuing at {start_epoch} ({ckpt_path})")
+
     # Precompute each song's frozen CLAP text embedding once (there are only a
     # handful of unique mood strings), plus the null embedding for CFG dropout.
     clap_emb_all = text_enc.encode(mood_texts).cpu()          # (N, clap_dim)
@@ -165,7 +217,24 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
     melody_enc.train()
     text_enc.train()
 
-    for epoch in tqdm(range(1, cfg.diff_epochs + 1), desc="Diffusion"):
+    ckpt_interval = getattr(cfg, "diff_ckpt_interval", cfg.diff_epochs)
+
+    def _save_diff_ckpt(step):
+        state = {
+            "dit": dit.state_dict(),
+            "melody_enc": melody_enc.state_dict(),
+            "text_enc": text_enc.state_dict(),
+            "latent_mean": latent_mean,
+            "latent_std": latent_std,
+        }
+        # Inference-ready copy (what evaluate.py / edit mode load) ...
+        _atomic_save(state, os.path.join(cfg.output_dir, "diffusion.pt"))
+        # ... plus a resumable copy that also carries optimizer + step.
+        _atomic_save({**state, "optimizer": optimizer.state_dict(),
+                      "epoch": step}, ckpt_path)
+
+    for epoch in tqdm(range(start_epoch, cfg.diff_epochs + 1), desc="Diffusion",
+                      initial=start_epoch - 1, total=cfg.diff_epochs):
         optimizer.zero_grad()
 
         idx = torch.multinomial(sample_weights, cfg.batch_size,
@@ -192,6 +261,9 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
 
         if epoch % cfg.log_interval == 0 or epoch == 1:
             tqdm.write(f"  Epoch {epoch:4d} | Loss: {loss.item():.6f}")
+
+        if epoch % ckpt_interval == 0 or epoch == cfg.diff_epochs:
+            _save_diff_ckpt(epoch)
 
     dit.eval()
     melody_enc.eval()
