@@ -12,14 +12,20 @@
 #SBATCH --partition=hpg-turin
 #SBATCH --account=ufdatastudios
 #SBATCH --qos=ufdatastudios
+# Single-GPU training. Extra CPUs feed the pinned-memory DataLoader workers
+# (num_workers in config.py) plus the pin_memory thread.
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=6
-#SBATCH --gpus=2
+#SBATCH --cpus-per-task=8
+#SBATCH --gpus=1
 #SBATCH --mem=64G
-#SBATCH --time=08:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mail-user=asherwheatle@ufl.edu
 #SBATCH --mail-type=ALL
+
+# Fail loudly: abort on any unhandled error, unset variable, or broken pipe
+# so setup problems don't silently fall through to a half-run pipeline.
+set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # 1. Load system modules
@@ -91,11 +97,24 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
 DATA_ROOT="/orange/ufdatastudios/asherwheatle/DEAM_audio"
 
+# Run training under its own error guard so we can report the REAL outcome.
+# Without this, a killed/crashed run still fell through to "[RUN] Done"
+# and the job showed up as COMPLETED even with no saved model.
+set +e
 python mood_diffusion.py \
     --mode full \
     --audio_dir "$DATA_ROOT/MEMD_audio" \
     --annotations_dir "$DATA_ROOT/DEAM_Annotations" \
     --output_dir "$OUTPUT_DIR"
+status=$?
+set -e
 
-echo "[RUN] Done on $(date)"
-echo "[RUN] Results saved to: $OUTPUT_DIR"
+if [ "$status" -eq 0 ]; then
+    echo "[RUN] Done on $(date)"
+    echo "[RUN] Results saved to: $OUTPUT_DIR"
+else
+    echo "[RUN] FAILED (python exit $status) on $(date)" >&2
+    echo "[RUN] Partial checkpoints (if any) in: $OUTPUT_DIR" >&2
+fi
+# Propagate the real exit code so SLURM records FAILED, not COMPLETED.
+exit "$status"

@@ -69,7 +69,10 @@ class DiffusionConfig:
 
     # Training
     n_train_songs = None      # None = entire annotated dataset (~1800 songs)
-    batch_size = 16
+    # Raised from 16: the old value badly underfilled a modern GPU, leaving it
+    # copy-stalled rather than compute-bound.
+    batch_size = 64
+    num_workers = 4           # DataLoader workers for the autoencoder loop
     diff_lr = 1e-4
     diff_epochs = 10000
     cfg_scale = 1.5
@@ -81,3 +84,11 @@ class DiffusionConfig:
 
     log_interval = 50
     output_dir = "output"
+
+    # Checkpointing (eviction resilience — HiPerGator jobs can be killed
+    # mid-run). Every interval we write a resumable *_ckpt.pt (model +
+    # optimizer + step) and refresh the inference-ready autoencoder.pt /
+    # diffusion.pt, so an interrupted run is both restartable and usable.
+    ae_ckpt_interval = 25       # epochs between autoencoder checkpoints
+    diff_ckpt_interval = 1000   # steps between diffusion checkpoints
+    resume = True               # resume from *_ckpt.pt in output_dir if present
