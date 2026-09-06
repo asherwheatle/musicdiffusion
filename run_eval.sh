@@ -2,7 +2,9 @@
 # =============================================================================
 # HiPerGator SLURM job — CLAP + chroma evaluation of the mood-editing model
 # =============================================================================
-# Submit with:  sbatch run_eval.sh
+# Submit with:  sbatch run_eval.sh [checkpoint_dir]
+#   e.g.        sbatch run_eval.sh output/job_40998207
+#   (no arg -> evaluates the newest output/job_* directory)
 # Monitor with: squeue -u $USER
 # Results land in $CKPT_DIR: eval_edits.csv, clap_validation.csv, eval_summary.txt
 # =============================================================================
@@ -31,8 +33,22 @@ source "$UV_PROJECT_ENVIRONMENT/bin/activate"
 
 mkdir -p logs
 
-# --- Paths (edit these if your checkpoint dir or data move) ---
-CKPT_DIR="output/job_39423912"
+# --- Checkpoint dir: pass one as the first argument, otherwise default to the
+#     newest output/job_* directory.  e.g.  sbatch run_eval.sh output/job_40998207
+CKPT_DIR="${1:-}"
+if [ -z "$CKPT_DIR" ]; then
+    CKPT_DIR="$(ls -dt output/job_*/ 2>/dev/null | head -1)"
+    CKPT_DIR="${CKPT_DIR%/}"          # strip trailing slash left by `ls -d`
+fi
+if [ -z "$CKPT_DIR" ] || [ ! -f "$CKPT_DIR/diffusion.pt" ]; then
+    echo "[ERROR] No diffusion.pt found in CKPT_DIR='$CKPT_DIR'." >&2
+    echo "        Pass a trained checkpoint dir explicitly:" >&2
+    echo "        sbatch run_eval.sh output/job_XXXXXX" >&2
+    exit 1
+fi
+echo "[RUN] Evaluating checkpoint dir: $CKPT_DIR"
+
+# --- Data / CLAP paths (edit if these move) ---
 DATA_ROOT="/orange/ufdatastudios/asherwheatle/DEAM_audio"
 CLAP_CKPT="music_audioset_epoch_15_esc_90.14.pt"
 
