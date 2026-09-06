@@ -102,10 +102,22 @@ mkdir -p logs output
 
 # ---------------------------------------------------------------------------
 # 7. Run the pipeline
-#    Each job gets its own output directory keyed by SLURM job ID,
+#    Default: each job gets its own output directory keyed by SLURM job ID,
 #    so concurrent runs never clobber each other's results.
+#
+#    Resume: pass an existing output dir as the first argument to reuse its
+#    checkpoints instead of starting fresh, e.g.
+#        sbatch run_pipeline.sh output/job_40998207
+#    Training then picks up from that dir's *_ckpt.pt — a completed autoencoder
+#    (epoch == ae_epochs) is skipped and the run goes straight to diffusion.
 # ---------------------------------------------------------------------------
-OUTPUT_DIR="output/job_${SLURM_JOB_ID}"
+RESUME_DIR="${1:-}"            # ${1:-} keeps this safe under `set -u`
+if [ -n "$RESUME_DIR" ]; then
+    OUTPUT_DIR="$RESUME_DIR"
+    echo "[RUN] Resuming into existing output dir: $OUTPUT_DIR"
+else
+    OUTPUT_DIR="output/job_${SLURM_JOB_ID}"
+fi
 mkdir -p "$OUTPUT_DIR"
 
 echo "[RUN] Starting pipeline on $(date)"
