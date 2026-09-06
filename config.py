@@ -38,9 +38,20 @@ class DiffusionConfig:
     cache_dir = "cache"
 
     # Autoencoder
-    ae_channels = [1, 32, 64, 128, 32]
+    # 3 downsample stages (was 4): latent is 32 x (H/8) x (W/8) = 32x16x54
+    # instead of 32x8x27, i.e. ~2x compression instead of ~8x. Each latent cell
+    # now covers an 8x8 mel patch (was 16x16), so the decoder no longer has to
+    # hallucinate large blocks — this is the main fix for the reconstruction
+    # distortion. NOTE: this quadruples the DiT sequence length (216 -> 864),
+    # so diffusion training (Phase 2) is significantly more expensive per step.
+    ae_channels = [1, 64, 128, 32]
     ae_lr = 1e-3
     ae_epochs = 100
+    # Reconstruction-loss weights (see train._mel_recon_loss). Pure MSE rewards
+    # blur; these sharpen it. Tune if the loss scale needs rebalancing.
+    ae_l1_weight = 1.0       # L1 base term (sharper than MSE)
+    ae_grad_weight = 1.0     # time/freq gradient match (edge/harmonic detail)
+    ae_ms_weight = 0.5       # multi-scale L1 (global structure)
 
     # CQT / Melody (paper section III-B)
     cqt_bins = 128

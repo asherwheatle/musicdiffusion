@@ -32,6 +32,41 @@ def _atomic_save(obj, path: str):
     os.replace(tmp, path)
 
 
+def _mel_recon_loss(recon: torch.Tensor, target: torch.Tensor,
+                    cfg: DiffusionConfig) -> torch.Tensor:
+    """Sharpness-preserving reconstruction loss for mel autoencoding.
+
+    Pure MSE rewards blur — it minimizes average error by smoothing — and
+    BigVGAN turns a blurred mel into distorted audio. We replace it with:
+      * L1        — sharper base term than MSE
+      * gradient  — match time/freq derivatives, so harmonics and onsets are
+                    preserved instead of averaged away (directly counters the
+                    lost mel-gradient energy we measured in reconstructions)
+      * multiscale— L1 at coarser resolutions to keep global structure
+    This is the mel-space analog of a multi-resolution STFT loss; the AE never
+    sees waveforms, so the terms are applied on the spectrogram itself.
+    """
+    l1 = F.l1_loss(recon, target)
+
+    # gradient-difference (edge) loss along time and frequency
+    grad = (F.l1_loss(recon[..., 1:] - recon[..., :-1],
+                      target[..., 1:] - target[..., :-1]) +
+            F.l1_loss(recon[..., 1:, :] - recon[..., :-1, :],
+                      target[..., 1:, :] - target[..., :-1, :]))
+
+    # multi-scale L1: compare at 1/2, 1/4, 1/8 resolution
+    ms = recon.new_zeros(())
+    r, t = recon, target
+    for _ in range(3):
+        r = F.avg_pool2d(r, 2)
+        t = F.avg_pool2d(t, 2)
+        ms = ms + F.l1_loss(r, t)
+
+    return (getattr(cfg, "ae_l1_weight", 1.0) * l1 +
+            getattr(cfg, "ae_grad_weight", 1.0) * grad +
+            getattr(cfg, "ae_ms_weight", 0.5) * ms)
+
+
 def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
     """
     Train the latent autoencoder on a batch of normalized mel spectrograms.
@@ -96,14 +131,14 @@ def train_autoencoder(mel_batch: torch.Tensor, cfg: DiffusionConfig):
             if recon.shape != batch.shape:
                 recon = F.interpolate(recon, size=batch.shape[2:],
                                       mode="bilinear", align_corners=False)
-            loss = F.mse_loss(recon, batch)
+            loss = _mel_recon_loss(recon, batch, cfg)
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
             n_batches += 1
 
         if epoch % cfg.log_interval == 0 or epoch == 1:
-            tqdm.write(f"  Epoch {epoch:4d} | MSE: {epoch_loss / max(n_batches, 1):.6f}")
+            tqdm.write(f"  Epoch {epoch:4d} | recon loss: {epoch_loss / max(n_batches, 1):.6f}")
 
         if epoch % ckpt_interval == 0 or epoch == cfg.ae_epochs:
             # Resumable checkpoint (model + optimizer + epoch) ...
