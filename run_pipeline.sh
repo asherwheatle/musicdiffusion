@@ -9,7 +9,7 @@
 #SBATCH --job-name=mood-diffusion-full
 #SBATCH --output=logs/mood_full_%j.out
 #SBATCH --error=logs/mood_full_%j.err
-#SBATCH --partition=hpg-turin
+#SBATCH --partition=hpg-b200
 #SBATCH --account=ufdatastudios
 #SBATCH --qos=ufdatastudios
 # Single-GPU training. Extra CPUs feed the pinned-memory DataLoader workers
@@ -17,8 +17,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --gpus=1
-#SBATCH --mem=64G
+#SBATCH --gpus=b200:1
+#SBATCH --mem=80G
 #SBATCH --time=24:00:00
 #SBATCH --mail-user=asherwheatle@ufl.edu
 #SBATCH --mail-type=ALL
