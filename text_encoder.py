@@ -4,14 +4,14 @@ Two encoders live here:
 
   * ClapTextEncoder (Lever A, default): a *frozen* CLAP text tower followed by
     a small trainable projection. CLAP was contrastively trained on text<->audio
-    pairs, so a prompt like "dark and mysterious" already lands near
+    pairs, so a prompt like "sad and melancholic" already lands near
     dark/mysterious-sounding audio — and unseen phrasings ("eerie", "ominous
     film score") generalize because CLAP knows they are semantically close.
     This is the encoder the pipeline now trains and infers with, and it uses the
     *same* CLAP representation the evaluation judges against.
 
   * TextEncoder (legacy): a character-level transformer trained from scratch.
-    It only ever sees the five fixed mood strings during training, so it learns
+    It only ever sees the fixed mood strings during training, so it learns
     a lookup from those exact character sequences to audio — no semantics, no
     generalization. Kept for reference / ablation only.
 """
@@ -68,7 +68,7 @@ class ClapTextEncoder(nn.Module):
     Usage matches the old TextEncoder except CLAP does its own tokenization, so
     callers pass raw strings through `.encode(...)`:
 
-        clap_emb = text_enc.encode(["dark and mysterious"])   # (B, clap_dim)
+        clap_emb = text_enc.encode(["sad and melancholic"])   # (B, clap_dim)
         text_emb = text_enc(clap_emb)                         # (B, n_tokens, d)
 
     `encode` (frozen, no grad) is cheap to precompute once per unique prompt.

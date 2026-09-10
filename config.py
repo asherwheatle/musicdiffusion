@@ -14,16 +14,13 @@ class DiffusionConfig:
     clips_per_song = 6
     n_mels = 128
 
-    # Mood balancing via waveform augmentation (see augment.py). DEAM has
-    # far fewer dark clips than happy ones; we manufacture extra dark clips
-    # by pitch-shifting / time-shifting / adding noise to the real ones.
-    # Every mood except the majority "happy and uplifting" is boosted to
-    # parity with it (~5.8k clips each); empty tuple disables augmentation.
+    # Mood balancing via waveform augmentation (see augment.py). With the
+    # valence-only labels the split is ~70/30 happy/sad, so the minority
+    # "sad and melancholic" is boosted to parity by pitch-shifting /
+    # time-shifting / adding noise to the real sad clips. Empty tuple
+    # disables augmentation.
     augment_moods = (
-        "dark and mysterious",
         "sad and melancholic",
-        "energetic and powerful",
-        "calm and peaceful",
     )
     augment_target = None        # target clips/mood; None = match largest mood
     max_aug_per_clip = 12        # ceiling on variants per real clip
@@ -79,7 +76,7 @@ class DiffusionConfig:
     #             CLAP *text* embedding of the prompt is swapped in. CLAP's
     #             towers are contrastively aligned, so this transfers, and it
     #             gives ~10k distinct conditioning vectors (one per clip)
-    #             instead of 5 (one per mood label). With only 5 vectors the
+    #             instead of 2 (one per mood label). With only 2 vectors the
     #             trainable projection degenerates into a lookup table with
     #             no reason to preserve CLAP's semantics — which is why the
     #             model moved audio in mood-irrelevant directions.

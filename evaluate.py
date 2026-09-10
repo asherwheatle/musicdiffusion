@@ -6,7 +6,7 @@ Two independent judges, neither of which the model was trained against:
      whether an edit actually moved the audio toward the target mood text.
      Reported as:
        * clap_gain   = cos(edited, target) - cos(original, target)  (did it move?)
-       * transfer    = does the target mood rank #1 among all 5 mood prompts?
+       * transfer    = does the target mood rank #1 among all mood prompts?
 
   2. Chroma similarity — cosine between the original and edited chroma (pitch-class)
      features. Measures whether the melody/harmony was preserved (the ControlNet
@@ -14,9 +14,10 @@ Two independent judges, neither of which the model was trained against:
      trade-off: mood changed AND tune kept.
 
 Before trusting CLAP, we VALIDATE it: run it on the *original* DEAM clips against
-their ground-truth valence/arousal mood labels. If CLAP can't tell the 5 moods
-apart on real audio (accuracy near the 20% chance line), it can't judge edits
-either, and the CLAP numbers below should be discarded.
+their ground-truth valence mood labels. If CLAP can't tell the moods
+apart on real audio (accuracy near the 50% chance line of the happy/sad
+vocabulary), it can't judge edits either, and the CLAP numbers below should be
+discarded.
 
 Usage (on a GPU node, inside the venv):
   python evaluate.py \
@@ -121,9 +122,9 @@ class Clap:
                   "default general-audio checkpoint (weaker at musical mood).")
             self.model.load_ckpt()
         self.model.eval()
-        # Precompute the 5 mood-prompt text embeddings once.
+        # Precompute the mood-prompt text embeddings once.
         self.text_emb = _l2(self.model.get_text_embedding(
-            [MOOD_PROMPTS[m] for m in MOODS], use_tensor=False))  # (5, D)
+            [MOOD_PROMPTS[m] for m in MOODS], use_tensor=False))  # (n_moods, D)
 
     @torch.no_grad()
     def audio_embed(self, wav_44k: np.ndarray, sr: int) -> np.ndarray:
@@ -133,7 +134,7 @@ class Clap:
         return _l2(emb)[0]  # (D,)
 
     def cos_to_moods(self, audio_emb: np.ndarray) -> np.ndarray:
-        """Cosine of one audio embedding against all 5 mood prompts -> (5,)."""
+        """Cosine of one audio embedding against every mood prompt -> (n_moods,)."""
         return self.text_emb @ audio_emb
 
 
@@ -185,10 +186,21 @@ def load_models(cfg: DiffusionConfig, ckpt_dir: str, sample_wav: np.ndarray,
     return ae, dit, melody_enc, text_enc, diffusion, latent_mean, latent_std
 
 
-def pick_annotated_songs(audio_dir: str, va: dict, n: int) -> list:
-    """Return n song file paths (spread evenly) that have VA annotations."""
+def pick_annotated_songs(audio_dir: str, va: dict, n: int,
+                         require_label: bool = True) -> list:
+    """Return n song file paths (spread evenly) that have VA annotations.
+
+    With require_label (the default), songs inside the valence dead band —
+    which have no mood label, `mood_from_va` returns None — are excluded, so
+    every mood-scoring stage can assume a usable ground truth. The valence
+    probe passes require_label=False: it regresses on continuous valence and
+    wants the middle of the range in its training set.
+    """
     files = sorted(glob.glob(os.path.join(audio_dir, "*.mp3")))
     files = [f for f in files if song_id_from_filename(f) in va]
+    if require_label:
+        files = [f for f in files
+                 if mood_from_va(*va[song_id_from_filename(f)]) is not None]
     if not files:
         raise FileNotFoundError(f"No annotated MP3s found in {audio_dir}")
     if n < len(files):
@@ -229,7 +241,10 @@ def validate_clap(clap: Clap, files: list, va: dict, sr: int,
         c, tot = per_true[m]
         if tot:
             print(f"           {m:24s}: {c}/{tot} = {c/tot:.2f}")
-    verdict = ("LEGITIMATE — clearly above chance" if acc >= 0.35 else
+    # Chance is 1/len(MOODS) — 0.5 for the two-mood vocabulary — so the bar
+    # for "clearly above chance" has to move with the vocabulary size.
+    verdict = ("LEGITIMATE — clearly above chance"
+               if acc >= 1 / len(MOODS) + 0.15 else
                "WEAK — near chance, treat CLAP edit scores with caution")
     print(f"[CLAP-VAL] Verdict: {verdict}")
     print(f"[CLAP-VAL] Wrote {out_csv}")
@@ -237,7 +252,7 @@ def validate_clap(clap: Clap, files: list, va: dict, sr: int,
 
 
 # ---------------------------------------------------------------------------
-# Stage 2: edit N songs x 5 moods, score each edit
+# Stage 2: edit N songs x every mood, score each edit
 # ---------------------------------------------------------------------------
 def evaluate_edits(cfg, clap, probe, files, va, sr, models, out_csv):
     ae, dit, melody_enc, text_enc, diffusion, lat_mean, lat_std = models
@@ -258,7 +273,7 @@ def evaluate_edits(cfg, clap, probe, files, va, sr, models, out_csv):
         waveform = torch.FloatTensor(wav_orig).unsqueeze(0)
 
         orig_emb = clap.audio_embed(wav_orig, sr)
-        orig_cos = clap.cos_to_moods(orig_emb)  # (5,)
+        orig_cos = clap.cos_to_moods(orig_emb)  # (n_moods,)
         v_orig = probe.predict(orig_emb)
 
         for target in MOODS:
@@ -393,7 +408,8 @@ def main():
 
     # Stage 1b: fit the continuous valence probe on frozen CLAP embeddings
     # (cheap — embedding only, no editing). Cached to the ckpt dir.
-    probe_files = pick_annotated_songs(args.audio_dir, va, args.n_probe)
+    probe_files = pick_annotated_songs(args.audio_dir, va, args.n_probe,
+                                       require_label=False)
     probe = train_probe_from_clip_files(
         clap, probe_files, va, sr, cfg.clip_start_seconds, cfg.clip_seconds,
         load_clip, song_id_from_filename,

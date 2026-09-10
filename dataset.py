@@ -1,9 +1,11 @@
 """Multi-song DEAM dataset labeled with the official valence/arousal annotations.
 
 Moods come from DEAM's human annotations (see annotations.py) when an
-annotations directory is available. The old audio-feature heuristic
-(tempo/RMS/centroid median splits) is kept only as a fallback for running
-without the annotation CSVs.
+annotations directory is available: two labels, happy vs sad, split on
+valence alone, with clips in the valence dead band dropped outright rather
+than given an ambiguous label. The old audio-feature heuristic (median split
+on a spectral proxy) is kept only as a fallback for running without the
+annotation CSVs.
 
 Because the full dataset is ~1800 songs, this module also:
   * clips each song from 15 s onward, matching the region the dynamic
@@ -27,40 +29,28 @@ from tqdm import tqdm
 
 from pipeline import bigvgan_mel_spectrogram, FixedMelNormalizer
 from annotations import (load_annotation_windows, mood_from_va,
-                         song_id_from_filename, MOOD_QUADRANTS)
+                         song_id_from_filename, VALENCE_DEAD_BAND,
+                         MOOD_HAPPY, MOOD_SAD)
 from augment import augment_waveform, plan_augmentation, variants_for_clip
 
 
-def _heuristic_song_features(wav: np.ndarray, sr: int):
-    tempo = float(np.atleast_1d(librosa.feature.tempo(y=wav, sr=sr))[0])
-    rms = float(librosa.feature.rms(y=wav).mean())
-    centroid = float(librosa.feature.spectral_centroid(y=wav, sr=sr).mean())
-    return tempo, rms, centroid
+def _heuristic_song_features(wav: np.ndarray, sr: int) -> float:
+    """Spectral centroid — the fallback's stand-in for valence. Tempo and RMS
+    used to be collected here too; they only fed the arousal axis, which no
+    longer takes part in labeling."""
+    return float(librosa.feature.spectral_centroid(y=wav, sr=sr).mean())
 
 
 def _heuristic_labels(features: list) -> list:
-    """Fallback: mood per song from median splits of audio features."""
-    tempos = np.array([f[0] for f in features])
-    rmss = np.array([f[1] for f in features])
-    cents = np.array([f[2] for f in features])
+    """Fallback: happy/sad per clip from a median split on a valence proxy.
 
-    def z(x):
-        return (x - x.mean()) / (x.std() + 1e-8)
-
-    arousal = z(tempos) + z(rmss)
-    valence = z(cents)
-
-    high_a = arousal > np.median(arousal)
-    high_v = valence > np.median(valence)
-
-    labels = []
-    dark_cutoff = np.percentile(valence, 25)
-    for a, v, val in zip(high_a, high_v, valence):
-        if not a and val < dark_cutoff:
-            labels.append("dark and mysterious")
-        else:
-            labels.append(MOOD_QUADRANTS[(bool(a), bool(v))])
-    return labels
+    No dead band here — the spectral-centroid proxy has no calibrated zero
+    to put one around, so this path just splits at the median. It is a
+    degraded escape hatch for running without the annotation CSVs; the real
+    labels come from `mood_from_va`.
+    """
+    cents = np.array(features)
+    return [MOOD_HAPPY if c > np.median(cents) else MOOD_SAD for c in cents]
 
 
 def _load_span(path: str, sr: int, start_seconds: float,
@@ -87,7 +77,9 @@ def _load_span(path: str, sr: int, start_seconds: float,
 def _cache_path(cache_dir: str, n_songs, clip_start: float, clip_len: float,
                 clips_per_song: int, labeled: bool, aug_tag: str = "") -> str:
     tag = "all" if n_songs is None else str(n_songs)
-    src = "annot" if labeled else "heur"
+    # The dead band is part of the cache key: it changes which clips exist,
+    # so a cache built under a different band must not be reused.
+    src = f"annot-v{VALENCE_DEAD_BAND:g}" if labeled else "heur"
     return os.path.join(
         cache_dir,
         f"deam_{tag}songs_{clip_start:g}s+{clip_len:g}sx{clips_per_song}"
@@ -107,9 +99,10 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
     Load DEAM clips with annotation-derived mood labels.
 
     Each song contributes up to `clips_per_song` consecutive clips of
-    `clip_seconds`, each labeled with the valence/arousal averaged over
-    that clip's own window (dynamic annotations are per-second, so one
-    song can yield e.g. both a "happy" and a "sad" clip). The finished
+    `clip_seconds`, each labeled from the valence averaged over that clip's
+    own window (dynamic annotations are per-second, so one song can yield
+    both a "happy" and a "sad" clip, and clips from the same song can be
+    dropped independently for landing in the dead band). The finished
     dataset is shuffled with a fixed seed so clips from the same song —
     and runs of the same mood — never sit next to each other.
 
@@ -219,8 +212,9 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
     if augment_moods:
         from collections import Counter
         pre_counts = Counter(
-            mood_from_va(*va[song_id_from_filename(p)][k])
-            for p in files for k in range(clips_per_song))
+            m for m in (mood_from_va(*va[song_id_from_filename(p)][k])
+                        for p in files for k in range(clips_per_song))
+            if m is not None)
         aug_plan, aug_target = plan_augmentation(
             pre_counts, augment_moods, augment_target, max_aug_per_clip)
         aug_rng = np.random.default_rng(augment_seed)
@@ -251,6 +245,7 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
                 _flush_clap()
 
     mels, melodies, features, mood_texts, names = [], [], [], [], []
+    n_ambiguous = 0
     for path in tqdm(files, desc="Loading songs"):
         span, real_samples = _load_span(path, sr, clip_start_seconds,
                                         span_seconds)
@@ -262,14 +257,21 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
                 break
             wav = span[k * seg_samples:(k + 1) * seg_samples]
 
-            _extract(wav)
+            mood = None
             if va is not None:
-                valence, arousal = va[song_id_from_filename(path)][k]
-                mood = mood_from_va(valence, arousal)
+                valence, _ = va[song_id_from_filename(path)][k]
+                mood = mood_from_va(valence)
+                # Inside the valence dead band: too ambiguous to label, so
+                # the clip never enters the dataset at all.
+                if mood is None:
+                    n_ambiguous += 1
+                    continue
+
+            _extract(wav)
+            if mood is not None:
                 mood_texts.append(mood)
             else:
                 features.append(_heuristic_song_features(wav, sr))
-                mood = None
             names.append(f"{base}#{k}")
 
             # Manufacture extra clips for under-represented moods.
@@ -288,6 +290,9 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
 
     if va is None:
         mood_texts = _heuristic_labels(features)
+    elif n_ambiguous:
+        print(f"[DATA] Dropped {n_ambiguous} clips inside the valence dead "
+              f"band (|v| < {VALENCE_DEAD_BAND:g})")
 
     _flush_clap()
     clap_audio = torch.cat(clap_chunks, dim=0) if clap_chunks else None

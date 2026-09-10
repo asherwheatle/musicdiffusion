@@ -23,7 +23,7 @@ Usage:
 
   # Phase 3: Edit mood of an audio file
   python mood_diffusion.py --mode edit --input output/original.wav \
-      --text "dark and mysterious" --edit_strength 0.7
+      --text "sad and melancholic" --edit_strength 0.7
 
   # Full pipeline (train_ae -> train_diff -> edit)
   python mood_diffusion.py --mode full --audio_dir data/DEAM_audio/MEMD_audio
@@ -66,7 +66,7 @@ def parse_args():
                         default=os.path.join("data", "DEAM_audio", "MEMD_audio"))
     parser.add_argument("--input", type=str, default=None,
                         help="Input WAV for edit mode")
-    parser.add_argument("--text", type=str, default="dark and mysterious",
+    parser.add_argument("--text", type=str, default="sad and melancholic",
                         help="Mood description for editing")
     parser.add_argument("--edit_strength", type=float, default=0.35,
                         help="0=no change, 1=full regen from noise")

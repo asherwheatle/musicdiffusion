@@ -11,9 +11,9 @@ This sweeps melody_scale -- the multiplier on the melody embedding -- holding
 song and sampling noise fixed, and reports:
 
   clap_gain    does the edit move toward the correct mood? (signed)
-  transfer%    does the target mood rank #1 of 5 on the edited audio?
+  transfer%    does the target mood rank #1 of the moods on the edited audio?
   chroma       melody preservation (expected to FALL as melody_scale drops)
-  clap_spread  how far apart the 5 mood-edits of one song are
+  clap_spread  how far apart the mood-edits of one song are
 
 Interpretation:
   gain rises as melody_scale falls ... melody control WAS capping the edit;

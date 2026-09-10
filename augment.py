@@ -1,14 +1,14 @@
 """Waveform augmentation for balancing under-represented moods.
 
-DEAM is heavily skewed: ~5.6% of training clips are "dark and mysterious"
-versus ~54% "happy and uplifting" (a 9.6x gap), and those dark clips come
-from only ~144 distinct songs. Weighted sampling equalizes how often each
-mood is *seen*, but it can only repeat the same 605 dark clips. This module
-manufactures new, plausible dark clips by perturbing the real ones so the
-model sees genuine variety instead of the same handful over and over.
+DEAM's valence ratings sit on a positive shift, so even after the dead band
+(see annotations.VALENCE_DEAD_BAND) the happy/sad split is roughly 70/30.
+Weighted sampling equalizes how often each mood is *seen*, but it can only
+repeat the same sad clips. This module manufactures new, plausible sad clips
+by perturbing the real ones so the model sees genuine variety instead of the
+same handful over and over.
 
-Three mood-preserving perturbations (small enough not to push a clip out of
-its valence/arousal quadrant), composed per variant:
+Three mood-preserving perturbations (small enough not to push a clip across
+the valence split), composed per variant:
 
   * pitch shift   — +/- a few semitones (librosa phase-vocoder)
   * time shift    — translate the waveform in time, zero-filling the gap
@@ -150,7 +150,7 @@ def _demo():
     ap.add_argument("--clips_per_song", type=int, default=6)
     ap.add_argument("--clip_seconds", type=float, default=5)
     ap.add_argument("--clip_start_seconds", type=float, default=15)
-    ap.add_argument("--mood", type=str, default="dark and mysterious",
+    ap.add_argument("--mood", type=str, default="sad and melancholic",
                     help="mood to balance (repeatable via comma)")
     ap.add_argument("--target", type=int, default=None,
                     help="target clip count (default: match largest mood)")
@@ -167,14 +167,20 @@ def _demo():
     va = load_annotation_windows(args.annotations_dir, windows)
 
     counts = Counter()
+    dropped = 0
     for pairs in va.values():
         for v, a in pairs:
-            counts[mood_from_va(v, a)] += 1
+            mood = mood_from_va(v)
+            if mood is None:      # inside the valence dead band
+                dropped += 1
+                continue
+            counts[mood] += 1
 
     moods = [m.strip() for m in args.mood.split(",")]
     plan, target = plan_augmentation(counts, moods, args.target, args.cap)
 
-    print(f"\nCurrent per-clip counts ({sum(counts.values())} clips):")
+    print(f"\nCurrent per-clip counts ({sum(counts.values())} clips, "
+          f"{dropped} dropped in the valence dead band):")
     for m, c in counts.most_common():
         print(f"  {c:6d}  {m}")
     print(f"\nBalancing target: {target} clips/mood")

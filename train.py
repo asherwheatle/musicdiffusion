@@ -228,7 +228,7 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
     null_clap_emb = text_enc.encode([""])[0].to(device)       # (clap_dim,)
 
     # What each clip is conditioned on. "audio" gives every clip its own CLAP
-    # audio embedding; "text" collapses the whole set onto the 5 mood-label
+    # audio embedding; "text" collapses the whole set onto the 2 mood-label
     # text embeddings, which lets the projection degenerate into a lookup
     # table that need not respect CLAP's semantics.
     cond_source = getattr(cfg, "clap_cond_source", "text")
@@ -279,9 +279,9 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
         print(f"[RESUME] Diffusion resumed from step {ck['epoch']} "
               f"-> continuing at {start_epoch} ({ckpt_path})")
 
-    # Mood-balanced sampling: DEAM is heavily skewed (lots of happy/
-    # energetic, few sad/dark clips), so uniform sampling would starve
-    # the rare moods of gradient updates and bias the conditioning.
+    # Mood-balanced sampling: DEAM is skewed toward positive valence
+    # (~70/30 happy/sad even after the dead band), so uniform sampling
+    # would under-train the sad side and bias the conditioning.
     # Weight each clip by the inverse of its mood's frequency so every
     # mood contributes ~equally to training batches.
     from collections import Counter

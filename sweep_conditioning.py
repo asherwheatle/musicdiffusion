@@ -3,17 +3,17 @@
 The decisive test: hold the song AND the sampling noise fixed, change only the
 mood text, and see whether the output changes. edit_mood's sole source of
 randomness is one torch.randn_like, so seeding right before each call makes all
-5 mood-edits of a given song share identical noise. Then any divergence between
+the mood-edits of a given song share identical noise. Then any divergence between
 those 5 outputs is caused purely by the text — nothing else.
 
 We sweep cfg_scale (guidance strength) x edit_strength and report, per combo:
 
-  divergence   how different the 5 mood-edits of a song are from each other.
+  divergence   how different the mood-edits of a song are from each other.
                ~0  => text does nothing (conditioning is dead / not learned).
-               >0  => text changes the output. Anchored against the spread of 5
+               >0  => text changes the output. Anchored against the spread of the
                       *different real songs* so you know what "a lot" means.
   clap_gain    does the edit move toward the *correct* mood (signed).
-  transfer%    does the target mood rank #1 of 5 on the edited audio.
+  transfer%    does the target mood rank #1 of the moods on the edited audio.
   chroma       melody preservation (sanity: should stay high).
 
 Interpretation:
