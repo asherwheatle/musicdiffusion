@@ -2,7 +2,9 @@
 # =============================================================================
 # HiPerGator SLURM job — controlled text-conditioning sweep
 # =============================================================================
-# Submit with:  sbatch run_sweep.sh
+# Submit with:  sbatch run_sweep.sh [checkpoint_dir]
+#   e.g.        sbatch run_sweep.sh output/job_41279148
+#   (no arg -> sweeps the newest output/job_* directory)
 # Monitor with: squeue -u $USER
 # Result:       $CKPT_DIR/sweep_conditioning.csv  (+ verdict in the .out log)
 # =============================================================================
@@ -32,7 +34,19 @@ source "$UV_PROJECT_ENVIRONMENT/bin/activate"
 mkdir -p logs
 
 # --- Paths (edit if your checkpoint dir or data move) ---
-CKPT_DIR="output/job_39423912"
+# Checkpoint dir: first arg wins, else the newest output/job_* directory.
+CKPT_DIR="${1:-}"
+if [ -z "$CKPT_DIR" ]; then
+    CKPT_DIR="$(ls -dt output/job_*/ 2>/dev/null | head -1)"
+    CKPT_DIR="${CKPT_DIR%/}"          # strip trailing slash left by `ls -d`
+fi
+if [ -z "$CKPT_DIR" ] || [ ! -f "$CKPT_DIR/diffusion.pt" ]; then
+    echo "[ERROR] No diffusion.pt found in CKPT_DIR='$CKPT_DIR'." >&2
+    echo "        Pass a trained checkpoint dir explicitly:" >&2
+    echo "        sbatch run_sweep.sh output/job_XXXXXX" >&2
+    exit 1
+fi
+echo "[RUN] Sweeping checkpoint dir: $CKPT_DIR"
 DATA_ROOT="/orange/ufdatastudios/asherwheatle/DEAM_audio"
 CLAP_CKPT="music_audioset_epoch_15_esc_90.14.pt"
 
