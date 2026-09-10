@@ -29,6 +29,7 @@ def edit_mood(
     latent_mean: torch.Tensor,
     latent_std: torch.Tensor,
     melody_scale: float = None,
+    cond_emb: torch.Tensor = None,
 ) -> torch.Tensor:
     """
     Edit the mood of an audio waveform using text conditioning.
@@ -41,6 +42,12 @@ def edit_mood(
       5. Decode -> BigVGAN -> output waveform
 
     edit_strength=0: no change. edit_strength=1: full regen from noise.
+
+    cond_emb overrides the conditioning vector. Normally the CLAP *text*
+    embedding of `mood_text` is used; pass a (clap_dim,) tensor here to feed
+    an arbitrary CLAP vector instead — e.g. a CLAP *audio* embedding, which
+    lets you test the conditioning path without crossing the audio/text
+    modality gap. `mood_text` is then used only for logging.
 
     melody_scale rescales the melody embedding before it reaches the
     ControlNet branch (default cfg.melody_scale). 0 removes melody
@@ -82,7 +89,12 @@ def edit_mood(
     # Embed the same caption the trainer and the evaluator use for this mood
     # ("a sad and melancholic piece of music", not the bare tag) — a different
     # string is a different CLAP vector.
-    text_emb = text_enc(text_enc.encode([mood_prompt(mood_text)]))
+    if cond_emb is not None:
+        vec = cond_emb.detach().to(device).float().reshape(1, -1)
+        vec = vec / (vec.norm(dim=-1, keepdim=True) + 1e-8)
+        text_emb = text_enc(vec)
+    else:
+        text_emb = text_enc(text_enc.encode([mood_prompt(mood_text)]))
     null_text_emb = text_enc(text_enc.encode([""]))
 
     # SDEdit: noise z0 up to t_start
