@@ -15,6 +15,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
 
 from config import DiffusionConfig
+from annotations import mood_prompt
 from autoencoder import LatentAutoencoder
 from text_encoder import ClapTextEncoder
 from dit import MoodDiT
@@ -166,7 +167,8 @@ def _encode_latents(ae: LatentAutoencoder, mel_padded: torch.Tensor,
 
 def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
                     melody_all: torch.Tensor, mood_texts: list[str],
-                    cfg: DiffusionConfig):
+                    cfg: DiffusionConfig, clap_audio: torch.Tensor = None,
+                    clap_model=None):
     """
     Train the DiT + ControlNet diffusion model in the autoencoder's latent space.
 
@@ -174,6 +176,10 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
         mel_batch: (N, 1, n_mels, T) normalized mels, one per clip (CPU)
         melody_all: (N, top_k, T_cqt) precomputed melody pitch indices (CPU)
         mood_texts: list of N mood strings, one per clip
+        clap_audio: (N, clap_dim) per-clip CLAP audio embeddings. Required
+            when cfg.clap_cond_source == "audio"; ignored otherwise.
+        clap_model: an already-loaded CLAP module to reuse (avoids a second
+            ~2 GB load when the caller built one for the dataset pass).
 
     Each step:
       1. Sample a minibatch of songs' latents z0
@@ -214,14 +220,44 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
     melody_enc = MelodyEncoder(d_model=cfg.d_model, top_k=cfg.melody_top_k).to(device)
     # Frozen CLAP text tower + trainable projection (Lever A). Only the
     # projection is optimized; CLAP is frozen and off the training hot path.
-    text_enc = ClapTextEncoder(cfg.d_model, clap_ckpt=cfg.clap_ckpt,
+    text_enc = ClapTextEncoder(cfg.d_model, clap_model=clap_model,
+                               clap_ckpt=cfg.clap_ckpt,
                                n_tokens=cfg.text_n_tokens, device=device).to(device)
     diffusion = GaussianDiffusion(cfg.num_train_timesteps, device)
 
-    # Precompute each song's frozen CLAP text embedding once (there are only a
-    # handful of unique mood strings), plus the null embedding for CFG dropout.
-    clap_emb_all = text_enc.encode(mood_texts).cpu()          # (N, clap_dim)
     null_clap_emb = text_enc.encode([""])[0].to(device)       # (clap_dim,)
+
+    # What each clip is conditioned on. "audio" gives every clip its own CLAP
+    # audio embedding; "text" collapses the whole set onto the 5 mood-label
+    # text embeddings, which lets the projection degenerate into a lookup
+    # table that need not respect CLAP's semantics.
+    cond_source = getattr(cfg, "clap_cond_source", "text")
+    if cond_source == "audio":
+        if clap_audio is None:
+            raise ValueError(
+                "cfg.clap_cond_source='audio' needs per-clip CLAP audio "
+                "embeddings. Pass clap_embedder=... to build_dataset so it "
+                "returns them (and delete any pre-CLAP cache).")
+        if clap_audio.shape[0] != n_songs:
+            raise ValueError(
+                f"clap_audio has {clap_audio.shape[0]} rows but there are "
+                f"{n_songs} clips — stale cache?")
+        clap_emb_all = clap_audio.float().cpu()               # (N, clap_dim)
+        # Text embeddings of the mood captions, for the text-mixing bridge.
+        uniq_moods = sorted(set(mood_texts))
+        mood_row = torch.tensor([uniq_moods.index(m) for m in mood_texts])
+        mood_text_emb = text_enc.encode(
+            [mood_prompt(m) for m in uniq_moods]).cpu()       # (n_moods, dim)
+        print(f"[COND] Conditioning on per-clip CLAP AUDIO embeddings "
+              f"{tuple(clap_emb_all.shape)}; noise={cfg.clap_audio_noise}, "
+              f"text_mix={cfg.clap_text_mix}")
+    else:
+        # Legacy: one of a handful of mood-label text embeddings per clip.
+        clap_emb_all = text_enc.encode(
+            [mood_prompt(m) for m in mood_texts]).cpu()       # (N, clap_dim)
+        mood_row = mood_text_emb = None
+        print(f"[COND] Conditioning on mood-label TEXT embeddings "
+              f"({len(set(mood_texts))} unique)")
 
     all_params = (list(dit.parameters()) +
                   list(melody_enc.parameters()) +
@@ -276,6 +312,9 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
             "text_enc": text_enc.state_dict(),
             "latent_mean": latent_mean,
             "latent_std": latent_std,
+            # Records what the projection was trained to accept, so a
+            # checkpoint can be told apart from a legacy text-conditioned one.
+            "clap_cond_source": cond_source,
         }
         # Inference-ready copy (what evaluate.py / edit mode load) ...
         _atomic_save(state, os.path.join(cfg.output_dir, "diffusion.pt"))
@@ -298,6 +337,21 @@ def train_diffusion(ae: LatentAutoencoder, mel_batch: torch.Tensor,
         mel_emb = melody_enc(melody_all[idx].to(device, non_blocking=True), W_lat)
 
         clap_emb = clap_emb_all[idx].to(device)   # (B, clap_dim), a fresh copy
+
+        if cond_source == "audio":
+            # Bridge CLAP's modality gap: jitter the audio embedding so the
+            # model tolerates a shifted input, and sometimes hand it the
+            # mood caption's TEXT embedding so the inference-time path is
+            # trained rather than merely assumed to transfer.
+            if cfg.clap_audio_noise > 0:
+                n = torch.randn_like(clap_emb)
+                n = n / (n.norm(dim=-1, keepdim=True) + 1e-8)
+                clap_emb = clap_emb + cfg.clap_audio_noise * n
+                clap_emb = clap_emb / (clap_emb.norm(dim=-1, keepdim=True) + 1e-8)
+            if cfg.clap_text_mix > 0:
+                swap = torch.rand(cfg.batch_size, device=device) < cfg.clap_text_mix
+                clap_emb[swap] = mood_text_emb[mood_row[idx]].to(device)[swap]
+
         drop = torch.rand(cfg.batch_size, device=device) < cfg.cfg_dropout
         clap_emb[drop] = null_clap_emb
         text_emb = text_enc(clap_emb)

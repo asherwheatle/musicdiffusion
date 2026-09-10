@@ -50,19 +50,13 @@ from diffusion import GaussianDiffusion
 from pipeline import (load_bigvgan, bigvgan_mel_spectrogram, FixedMelNormalizer,
                       pad_spectrogram)
 from inference import edit_mood
-from annotations import (load_annotations, mood_from_va, song_id_from_filename)
+from annotations import (load_annotations, mood_from_va, song_id_from_filename,
+                         MOOD_PROMPTS)
 from valence_probe import (train_probe_from_clip_files, MOOD_VALENCE_SIGN)
 
 
-# The five moods the model was trained on, expanded into caption-like prompts
-# (CLAP was trained on natural captions, not bare tags).
-MOOD_PROMPTS = {
-    "happy and uplifting":    "a happy and uplifting piece of music",
-    "energetic and powerful": "an energetic and powerful piece of music",
-    "calm and peaceful":      "a calm and peaceful piece of music",
-    "sad and melancholic":    "a sad and melancholic piece of music",
-    "dark and mysterious":    "a dark and mysterious piece of music",
-}
+# Mood prompts now live in annotations.py so training, inference and this
+# evaluator all embed the identical string per mood.
 MOODS = list(MOOD_PROMPTS.keys())
 
 CLAP_SR = 48000  # LAION-CLAP expects 48 kHz mono

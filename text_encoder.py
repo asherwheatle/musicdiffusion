@@ -18,8 +18,11 @@ Two encoders live here:
 
 import os
 
+import numpy as np
 import torch
 import torch.nn as nn
+
+CLAP_SR = 48000  # LAION-CLAP expects 48 kHz mono
 
 
 def load_clap_text_model(clap_ckpt: str = None, device: str = "cpu"):
@@ -103,6 +106,31 @@ class ClapTextEncoder(nn.Module):
         emb = emb.detach().float()
         emb = emb / (emb.norm(dim=-1, keepdim=True) + 1e-8)   # L2-norm
         return emb.to(self.device)
+
+    @torch.no_grad()
+    def encode_audio(self, wavs, sr: int, chunk: int = 64) -> torch.Tensor:
+        """CLAP *audio* embeddings for a list of waveforms -> (B, clap_dim).
+
+        Same space as `encode` (CLAP is contrastively aligned), so a model
+        trained on these can be prompted with text embeddings at inference.
+        Resampling matches evaluate.Clap.audio_embed exactly — training must
+        not use a different audio front-end than the judge.
+        """
+        import librosa
+
+        out = []
+        for i in range(0, len(wavs), chunk):
+            batch = [
+                librosa.resample(np.asarray(w, dtype=np.float32),
+                                 orig_sr=sr, target_sr=CLAP_SR)
+                for w in wavs[i:i + chunk]
+            ]
+            n = min(len(b) for b in batch)
+            x = np.stack([b[:n] for b in batch]).astype(np.float32)
+            emb = self.clap.get_audio_embedding_from_data(x=x, use_tensor=False)
+            emb = torch.from_numpy(np.asarray(emb)).float()
+            out.append(emb / (emb.norm(dim=-1, keepdim=True) + 1e-8))
+        return torch.cat(out, dim=0)
 
     @torch.no_grad()
     def encode(self, texts, chunk: int = 256) -> torch.Tensor:

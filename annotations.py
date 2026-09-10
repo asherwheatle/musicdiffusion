@@ -31,6 +31,25 @@ MOOD_QUADRANTS = {
     (False, False): "sad and melancholic",     # low arousal, low valence
 }
 
+# Caption-like prompts for each mood. CLAP was trained on natural captions,
+# not bare tags, so "a sad and melancholic piece of music" lands in a much
+# better place than "sad and melancholic". This is the single source of truth:
+# training, inference and evaluation must all embed the SAME string for a
+# mood, or the model is conditioned on one vector and judged against another.
+MOOD_PROMPTS = {
+    "happy and uplifting":    "a happy and uplifting piece of music",
+    "energetic and powerful": "an energetic and powerful piece of music",
+    "calm and peaceful":      "a calm and peaceful piece of music",
+    "sad and melancholic":    "a sad and melancholic piece of music",
+    "dark and mysterious":    "a dark and mysterious piece of music",
+}
+
+
+def mood_prompt(mood: str) -> str:
+    """Caption for a mood label; passes unknown strings through unchanged."""
+    return MOOD_PROMPTS.get(mood, mood)
+
+
 # Valence below this (on the [-1, 1] scale) with low arousal reads as
 # "dark" rather than merely "sad".
 DARK_VALENCE_THRESHOLD = -0.25

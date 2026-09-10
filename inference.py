@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from config import DiffusionConfig
+from annotations import mood_prompt
 from autoencoder import LatentAutoencoder
 from melody import MelodyExtractor, MelodyEncoder
 from text_encoder import ClapTextEncoder
@@ -78,7 +79,10 @@ def edit_mood(
     if melody_scale != 1.0:
         melody_emb = melody_emb * melody_scale
 
-    text_emb = text_enc(text_enc.encode([mood_text]))
+    # Embed the same caption the trainer and the evaluator use for this mood
+    # ("a sad and melancholic piece of music", not the bare tag) — a different
+    # string is a different CLAP vector.
+    text_emb = text_enc(text_enc.encode([mood_prompt(mood_text)]))
     null_text_emb = text_enc(text_enc.encode([""]))
 
     # SDEdit: noise z0 up to t_start

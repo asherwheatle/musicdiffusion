@@ -101,7 +101,8 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
                   shuffle_seed: int = 0, augment_moods=(),
                   augment_target=None, max_aug_per_clip: int = 12,
                   aug_max_semitones: float = 2.0, aug_max_shift_frac: float = 0.2,
-                  aug_snr_db_range=(20.0, 35.0), augment_seed: int = 0):
+                  aug_snr_db_range=(20.0, 35.0), augment_seed: int = 0,
+                  clap_embedder=None, clap_batch: int = 64):
     """
     Load DEAM clips with annotation-derived mood labels.
 
@@ -129,12 +130,20 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
                  real annotations, not the heuristic fallback.
         augment_target: target clip count per augmented mood (None = match
                  the largest mood). max_aug_per_clip caps variants per clip.
+        clap_embedder: optional callable (wavs, sr) -> (B, clap_dim) tensor
+                 of L2-normed CLAP *audio* embeddings, e.g.
+                 ClapTextEncoder.encode_audio. When given, one embedding is
+                 computed per clip (augmented clips included, since the
+                 augmentation changes what the clip sounds like) and cached
+                 alongside the mels. Used to condition diffusion on audio
+                 embeddings instead of the 5 mood-label text embeddings.
 
     Returns:
         mel_batch: (N, 1, n_mels, T) globally-normalized mel spectrograms (CPU)
         melodies: (N, top_k, T_cqt) long tensor, or None if no extractor
         mood_texts: list of N mood label strings
         names: list of N "filename#clip" strings ("...#k~augj" for augmented)
+        clap_audio: (N, clap_dim) float tensor, or None if no clap_embedder
     """
     sr = bigvgan_model.h.sampling_rate
     windows = [(clip_start_seconds + k * clip_seconds,
@@ -158,6 +167,12 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
         aug_tag = (f"_aug-{'+'.join(m.split()[0] for m in augment_moods)}"
                    f"-t{t}-c{max_aug_per_clip}-sd{augment_seed}")
 
+    # CLAP embeddings change what the cache contains, so they get their own
+    # tag — otherwise a run that wants them would silently load a cache
+    # built without them.
+    if clap_embedder is not None:
+        aug_tag += "_clap"
+
     cache_file = None
     if cache_dir:
         cache_file = _cache_path(cache_dir, n_songs, clip_start_seconds,
@@ -171,8 +186,10 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
                         if "melodies" in data else None)
             mood_texts = [str(s) for s in data["moods"]]
             names = [str(s) for s in data["names"]]
+            clap_audio = (torch.from_numpy(data["clap_audio"].astype(np.float32))
+                          if "clap_audio" in data else None)
             _print_distribution(mood_texts, len(names))
-            return mel_batch, melodies, mood_texts, names
+            return mel_batch, melodies, mood_texts, names, clap_audio
 
     files = sorted(glob.glob(os.path.join(audio_dir, "*.mp3")))
     if not files:
@@ -212,6 +229,15 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
             print(f"[AUG]   {m}: {pre_counts.get(m, 0)} real x "
                   f"~{aug_plan[m]:.2f} variants/clip")
 
+    # CLAP embeddings are batched: holding every waveform would cost ~10 GB,
+    # so they are flushed through the embedder a chunk at a time.
+    clap_chunks, clap_buf = [], []
+
+    def _flush_clap():
+        if clap_buf:
+            clap_chunks.append(clap_embedder(list(clap_buf), sr))
+            clap_buf.clear()
+
     def _extract(wav_arr):
         """Mel-normalize + melody-extract one waveform, appending to lists."""
         wt = torch.FloatTensor(wav_arr).unsqueeze(0)
@@ -219,6 +245,10 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
         mels.append(normalizer.normalize(mel))
         if melody_extractor is not None:
             melodies.append(torch.from_numpy(melody_extractor.extract(wav_arr)))
+        if clap_embedder is not None:
+            clap_buf.append(wav_arr)
+            if len(clap_buf) >= clap_batch:
+                _flush_clap()
 
     mels, melodies, features, mood_texts, names = [], [], [], [], []
     for path in tqdm(files, desc="Loading songs"):
@@ -259,6 +289,11 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
     if va is None:
         mood_texts = _heuristic_labels(features)
 
+    _flush_clap()
+    clap_audio = torch.cat(clap_chunks, dim=0) if clap_chunks else None
+    if clap_audio is not None:
+        print(f"[DATA] CLAP audio embeddings: {tuple(clap_audio.shape)}")
+
     # Shuffle so consecutive clips never share a song or a mood run;
     # fixed seed keeps the order (and the cache) reproducible.
     order = np.random.default_rng(shuffle_seed).permutation(len(names))
@@ -267,6 +302,8 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
         melodies = [melodies[i] for i in order]
     mood_texts = [mood_texts[i] for i in order]
     names = [names[i] for i in order]
+    if clap_audio is not None:
+        clap_audio = clap_audio[torch.from_numpy(order)]
 
     mel_batch = torch.stack(mels, dim=0)  # (N, 1, M, T)
     melody_batch = torch.stack(melodies, dim=0) if melodies else None
@@ -280,11 +317,13 @@ def build_dataset(audio_dir: str, n_songs, bigvgan_model,
         }
         if melody_batch is not None:
             arrays["melodies"] = melody_batch.numpy().astype(np.int16)
+        if clap_audio is not None:
+            arrays["clap_audio"] = clap_audio.numpy().astype(np.float32)
         np.savez(cache_file, **arrays)
         print(f"[DATA] Cached dataset to {cache_file}")
 
     _print_distribution(mood_texts, len(names))
-    return mel_batch, melody_batch, mood_texts, names
+    return mel_batch, melody_batch, mood_texts, names, clap_audio
 
 
 def _print_distribution(mood_texts, n):

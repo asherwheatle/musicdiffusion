@@ -74,6 +74,28 @@ class DiffusionConfig:
     clap_ckpt = "music_audioset_epoch_15_esc_90.14.pt"
     text_n_tokens = 4            # length of the projected conditioning sequence
 
+    # What the diffusion model is conditioned on during training.
+    #   "audio" — each clip's own CLAP *audio* embedding; at inference the
+    #             CLAP *text* embedding of the prompt is swapped in. CLAP's
+    #             towers are contrastively aligned, so this transfers, and it
+    #             gives ~10k distinct conditioning vectors (one per clip)
+    #             instead of 5 (one per mood label). With only 5 vectors the
+    #             trainable projection degenerates into a lookup table with
+    #             no reason to preserve CLAP's semantics — which is why the
+    #             model moved audio in mood-irrelevant directions.
+    #   "text"  — legacy: the CLAP text embedding of the clip's mood label.
+    clap_cond_source = "audio"
+    # Modality-gap handling for clap_cond_source="audio". CLAP's audio and
+    # text embeddings sit in slightly offset cones, so a model trained purely
+    # on audio vectors meets an out-of-distribution input at inference.
+    #   clap_audio_noise: Gaussian noise added to each audio embedding as a
+    #       fraction of its (unit) norm, making the model tolerant of a shift.
+    #   clap_text_mix: probability of substituting the mood label's TEXT
+    #       embedding for the audio one, so the text path is trained directly
+    #       rather than only assumed to transfer.
+    clap_audio_noise = 0.10
+    clap_text_mix = 0.25
+
     # Diffusion
     num_train_timesteps = 1000
     prediction_type = "v"
