@@ -27,6 +27,7 @@ def edit_mood(
     cfg: DiffusionConfig,
     latent_mean: torch.Tensor,
     latent_std: torch.Tensor,
+    melody_scale: float = None,
 ) -> torch.Tensor:
     """
     Edit the mood of an audio waveform using text conditioning.
@@ -39,6 +40,11 @@ def edit_mood(
       5. Decode -> BigVGAN -> output waveform
 
     edit_strength=0: no change. edit_strength=1: full regen from noise.
+
+    melody_scale rescales the melody embedding before it reaches the
+    ControlNet branch (default cfg.melody_scale). 0 removes melody
+    information entirely — use it to test whether melody control is so
+    strong it pins the output to the input and blocks the mood edit.
 
     Returns:
         wav_out: (1, T_samples) output waveform tensor
@@ -67,6 +73,10 @@ def edit_mood(
     melody_tensor = torch.from_numpy(melody_indices).unsqueeze(0).to(device)
     W_lat = z0.shape[-1]
     melody_emb = melody_enc(melody_tensor, W_lat)
+    if melody_scale is None:
+        melody_scale = getattr(cfg, "melody_scale", 1.0)
+    if melody_scale != 1.0:
+        melody_emb = melody_emb * melody_scale
 
     text_emb = text_enc(text_enc.encode([mood_text]))
     null_text_emb = text_enc(text_enc.encode([""]))
@@ -75,17 +85,20 @@ def edit_mood(
     T = cfg.num_train_timesteps
     t_start = max(1, min(int(cfg.edit_strength * T), T - 1))
 
-    step_ratio = T // cfg.num_inference_steps
-    timesteps = list(range(t_start, 0, -step_ratio))
-    if timesteps[-1] != 0:
-        timesteps.append(0)
+    # Evenly spaced timesteps from t_start down to 0. The old form used a
+    # fixed stride (T // num_inference_steps), which made the step COUNT
+    # depend on edit_strength — a gentle edit silently got far fewer steps
+    # than a strong one, so the two weren't comparable.
+    grid = np.linspace(t_start, 0, cfg.num_inference_steps + 1)
+    timesteps = list(dict.fromkeys(grid.round().astype(int).tolist()))
 
     noise = torch.randn_like(z0)
     t_tensor = torch.tensor([t_start], device=device)
     z_t = diffusion.q_sample(z0, t_tensor, noise)
 
-    print(f"[EDIT] SDEdit from t={t_start} ({len(timesteps)} steps), "
-          f"CFG scale={cfg.cfg_scale}")
+    print(f"[EDIT] SDEdit from t={t_start} ({len(timesteps) - 1} steps), "
+          f"CFG scale={cfg.cfg_scale}, eta={getattr(cfg, 'ddim_eta', 0.0)}, "
+          f"melody_scale={melody_scale}")
     print(f"[EDIT] Mood text: \"{mood_text}\"")
 
     # DDIM denoising with CFG on text only (paper section IV-C)
@@ -97,7 +110,8 @@ def edit_mood(
         v_uncond = dit(z_t, t_cur, null_text_emb, melody_emb)
         v_guided = v_uncond + cfg.cfg_scale * (v_cond - v_uncond)
 
-        z_t = diffusion.ddim_step(z_t, v_guided, t_cur, t_prev)
+        z_t = diffusion.ddim_step(z_t, v_guided, t_cur, t_prev,
+                                  eta=getattr(cfg, "ddim_eta", 0.0))
 
     # Undo standardization before the decoder (it expects raw encoder-scale latents)
     z_t = z_t * latent_std + latent_mean

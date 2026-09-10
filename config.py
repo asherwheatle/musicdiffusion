@@ -87,11 +87,23 @@ class DiffusionConfig:
     diff_lr = 1e-4
     diff_epochs = 10000
     cfg_scale = 1.5
-    cfg_dropout = 0.1
+    # Fraction of training steps that see the null text embedding. 0.1 is the
+    # low end of the usual range and leaves the unconditional path thinly
+    # trained, which makes the (cond - uncond) guidance direction noisy.
+    cfg_dropout = 0.2
 
     # Inference
     num_inference_steps = 50
     edit_strength = 0.35
+    # DDIM stochasticity. 0 = deterministic (the original behaviour); a small
+    # value lets an SDEdit trajectory leave the input's basin instead of
+    # retracing it. 1.0 recovers ancestral/DDPM sampling.
+    ddim_eta = 0.0
+    # Scales the melody embedding feeding the ControlNet branch. 1.0 = as
+    # trained; 0 = no melody information (mood-edit headroom test, see
+    # ablate_melody.py). Lower values trade melody preservation for
+    # conditioning freedom.
+    melody_scale = 1.0
 
     log_interval = 50
     output_dir = "output"
